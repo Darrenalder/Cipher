@@ -1,0 +1,14 @@
+{
+  "name": "Cosmic Valley (OLED Edition) v1",
+  "accent": "#0f0f0f",
+  "bg": "#1D1E21",
+  "bg_alt": "#000001",
+  "bg_elevated": "#141415",
+  "text": "#fffafa",
+  "text_dim": "#8c8a8a",
+  "border": "#333233",
+  "danger": "#ff5d6c",
+  "radius": 0,
+  "wallpaper": "cosmic-valley-oled-edition-v1-bg.png",
+  "wallpaper_dim": 0.4
+}

@@ -1,0 +1,14 @@
+{
+  "name": "This is Fine (animated)",
+  "accent": "#b0641c",
+  "bg": "#593e03",
+  "bg_alt": "#593e03",
+  "bg_elevated": "#664d17",
+  "text": "#a99fc1",
+  "text_dim": "#85736c",
+  "border": "#695129",
+  "danger": "#ff5d6c",
+  "radius": 14,
+  "wallpaper": "this-is-fine-animated-bg.gif",
+  "wallpaper_dim": 0.4
+}

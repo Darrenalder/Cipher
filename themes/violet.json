@@ -1,0 +1,13 @@
+{
+  "name": "Violet",
+  "accent": "#9d6bff",
+  "bg": "#0f0d17",
+  "bg_alt": "#161320",
+  "bg_elevated": "#1f1b2e",
+  "text": "#e9e6f2",
+  "text_dim": "#948bb0",
+  "border": "#2c2742",
+  "danger": "#ff5d8f",
+  "animation": "wave",
+  "wallpaper_dim": 0.22
+}

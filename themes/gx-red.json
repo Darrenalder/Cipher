@@ -1,0 +1,11 @@
+{
+  "name": "GX Red",
+  "accent": "#ff2e4d",
+  "bg": "#120a0d",
+  "bg_alt": "#1b1014",
+  "bg_elevated": "#261519",
+  "text": "#f3e9eb",
+  "text_dim": "#b08a92",
+  "border": "#3a1f26",
+  "danger": "#ff2e4d"
+}

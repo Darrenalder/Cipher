@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Laufzeit-/Nutzerdaten (nicht in den Quellcode)
+profile-data/
+logs/
+
+# Build-Artefakte (PyInstaller / Inno Setup)
+build/
+dist/
+Output/
+*.manifest
+Cipher-Setup-*.exe
+
+# Secrets (z. B. spätere Backend-/API-Keys)
+.env
+*.secret
+secrets.*
+
+# OS / Editor
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/

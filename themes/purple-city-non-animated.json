@@ -1,0 +1,14 @@
+{
+  "name": "Purple City (Non animated)",
+  "accent": "#80366b",
+  "bg": "#1d1e21",
+  "bg_alt": "#422445",
+  "bg_elevated": "#513654",
+  "text": "#ffb5b5",
+  "text_dim": "#aa7483",
+  "border": "#68415b",
+  "danger": "#ff5d6c",
+  "radius": 10,
+  "wallpaper": "purple-city-non-animated-bg.png",
+  "wallpaper_dim": 0.4
+}

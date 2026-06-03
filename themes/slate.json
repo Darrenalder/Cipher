@@ -1,0 +1,13 @@
+{
+  "name": "Slate",
+  "accent": "#5a8dd6",
+  "bg": "#14171c",
+  "bg_alt": "#1b1f26",
+  "bg_elevated": "#232833",
+  "text": "#dfe3ea",
+  "text_dim": "#8a92a0",
+  "border": "#2c333f",
+  "danger": "#e05260",
+  "animation": "constellation",
+  "wallpaper_dim": 0.25
+}

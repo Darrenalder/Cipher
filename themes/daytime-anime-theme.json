@@ -1,0 +1,14 @@
+{
+  "name": "Daytime anime theme",
+  "accent": "#00ffff",
+  "bg": "#edeef2",
+  "bg_alt": "#a3ffe8",
+  "bg_elevated": "#96ebd5",
+  "text": "#000000",
+  "text_dim": "#497368",
+  "border": "#82ccba",
+  "danger": "#ff5d6c",
+  "radius": 14,
+  "wallpaper": "daytime-anime-theme-bg.jpg",
+  "wallpaper_dim": 0.4
+}

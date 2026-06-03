@@ -1,0 +1,13 @@
+{
+  "name": "Matrix Green",
+  "accent": "#3fff6a",
+  "bg": "#0a120c",
+  "bg_alt": "#101a13",
+  "bg_elevated": "#16261b",
+  "text": "#e3f2e7",
+  "text_dim": "#7fae8c",
+  "border": "#1f3a28",
+  "danger": "#ff6b6b",
+  "animation": "matrix",
+  "wallpaper_dim": 0.25
+}

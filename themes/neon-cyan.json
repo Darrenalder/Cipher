@@ -1,0 +1,13 @@
+{
+  "name": "Neon Cyan",
+  "accent": "#00e5d0",
+  "bg": "#0f1216",
+  "bg_alt": "#161b22",
+  "bg_elevated": "#1f2630",
+  "text": "#e6e9ef",
+  "text_dim": "#8b93a7",
+  "border": "#2a3142",
+  "danger": "#ff4d6d",
+  "animation": "grid",
+  "wallpaper_dim": 0.25
+}

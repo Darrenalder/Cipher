@@ -1,0 +1,13 @@
+{
+  "name": "Starfield",
+  "accent": "#c8d2ff",
+  "bg": "#05070f",
+  "bg_alt": "#0b0f1c",
+  "bg_elevated": "#121829",
+  "text": "#e6e9f5",
+  "text_dim": "#7d86a3",
+  "border": "#1c2540",
+  "danger": "#ff6b6b",
+  "animation": "stars",
+  "wallpaper_dim": 0.15
+}

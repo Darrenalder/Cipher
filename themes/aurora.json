@@ -1,0 +1,13 @@
+{
+  "name": "Aurora",
+  "accent": "#22d3ee",
+  "bg": "#0a1020",
+  "bg_alt": "#111a2e",
+  "bg_elevated": "#18243d",
+  "text": "#e8eef7",
+  "text_dim": "#8ea0bd",
+  "border": "#243352",
+  "danger": "#ff6b8a",
+  "animation": "aurora",
+  "wallpaper_dim": 0.2
+}
