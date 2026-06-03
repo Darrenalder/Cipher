@@ -17,19 +17,30 @@ und daraus ein `Cipher-Setup-x.y.z.exe`.
 
 ## 1. App bündeln (PyInstaller)
 
+**Schnellweg — ein Befehl baut exe + Installer nach `_build\`** (Projekt-Root bleibt sauber):
+
 ```powershell
-.venv\Scripts\pyinstaller.exe cipher.spec
+powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-Ergebnis: `dist\Cipher\` mit `Cipher.exe` + allen DLLs/Ressourcen (inkl. Chromium).
-Der Ordner ist **gross (~250–400 MB)** — das ist normal (QtWebEngine = Chromium).
+Ergebnis: `_build\Cipher-Setup-0.1.0.exe` (Installer) und `_build\dist\Cipher\` (exe-Ordner).
+`-ExecutionPolicy Bypass` umgeht die Windows-Skriptsperre.
 
-**Testen vor dem Installer:** `dist\Cipher\Cipher.exe` doppelklicken.
+**Oder manuell:**
+
+```powershell
+.venv\Scripts\pyinstaller.exe cipher.spec --distpath _build\dist --workpath _build\build
+```
+
+Ergebnis: `_build\dist\Cipher\Cipher.exe` + alle DLLs/Ressourcen (inkl. Chromium),
+**gross (~250–400 MB)** — normal (QtWebEngine = Chromium).
+
+**Testen vor dem Installer:** `_build\dist\Cipher\Cipher.exe` doppelklicken.
 - Startet das Fenster + die Startseite (app://newtab) lädt? → gut.
 - **Startseite bleibt leer / Web-View startet nicht?** Dann fehlen QtWebEngine-Ressourcen:
 
   ```powershell
-  .venv\Scripts\pyinstaller.exe --collect-all PyQt6 cipher.spec
+  .venv\Scripts\pyinstaller.exe --collect-all PyQt6 cipher.spec --distpath _build\dist --workpath _build\build
   ```
 
   (sammelt alle PyQt6-Daten zwangsweise ein). Falls weiter Probleme: melde dich, das ist
@@ -40,16 +51,18 @@ logs, themes) — **nicht** im Installationsordner (der ist read-only).
 
 ## 2. Installer bauen (Inno Setup)
 
-`installer.iss` in der Inno-Setup-IDE öffnen → **Build → Compile**.
-Oder per Kommandozeile:
+Macht der Schnellweg oben schon mit. Manuell:
 
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 ```
 
-Ergebnis: `Output\Cipher-Setup-0.1.0.exe` — das ist die Datei zum Verteilen.
+Ergebnis: `_build\Cipher-Setup-0.1.0.exe` — das ist die Datei zum Verteilen.
 
 Version in `installer.iss` (`MyAppVersion`) pro Release hochzählen.
+
+**Aufräumen:** alles Gebaute liegt in `_build\` — zum Putzen einfach den Ordner löschen
+(`Remove-Item -Recurse -Force _build`).
 
 ## 3. Vor öffentlichem Release beachten
 

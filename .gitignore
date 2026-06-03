@@ -8,7 +8,8 @@ venv/
 profile-data/
 logs/
 
-# Build-Artefakte (PyInstaller / Inno Setup)
+# Build-Artefakte (alles unter _build\ via build.ps1; Alt-Pfade zur Sicherheit mit drin)
+_build/
 build/
 dist/
 Output/
