@@ -51,6 +51,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QScrollArea,
     QGridLayout,
+    QFrame,
 )
 
 from .tab import BrowserTab
@@ -289,6 +290,9 @@ class BrowserWindow(QMainWindow):
         self._glass_frost = int(self.cfg.value("glass_frost", 65))
         self._glass_edge = int(self.cfg.value("glass_edge", 35))
         self._glass_depth = int(self.cfg.value("glass_depth", 45))
+        # Frost-Modus für animierte (GIF-)Wallpaper: static (Frame-1, sparsam) |
+        # fake (live-GIF + Noise) | blur (live-GIF + CSS-Blur, Qualität). Standard sparsam.
+        self._anim_frost = self.cfg.value("anim_frost", "static") or "static"
         # Glas-Slider lädt die Startseite entprellt neu (Live-JS-Var-Update rendert
         # in dieser QtWebEngine nicht – var() in calc()/rgba() friert ein).
         self._glass_reload_timer = QTimer(self)
@@ -318,6 +322,11 @@ class BrowserWindow(QMainWindow):
         self._block_3p = self.cfg.value("block_third_party_cookies", True, type=bool)
         self._js_enabled = self.cfg.value("javascript_enabled", True, type=bool)
         self._default_zoom = int(self.cfg.value("default_zoom", 100))
+        # Personalisierung (Begrüssungsname + Zeitzone) → an den Startseiten-Handler.
+        self._user_name = self.cfg.value("user_name", "", type=str)
+        self._tz = self.cfg.value("timezone", "", type=str)
+        get_handler().user_name = self._user_name
+        get_handler().tz = self._tz
 
         # Themes laden + gespeicherte Auswahl bestimmen.
         self._themes = load_themes()
@@ -401,8 +410,8 @@ class BrowserWindow(QMainWindow):
 
         self._build_shortcuts()
 
-        self.add_tab(HOME)
-
+        # Erster Tab wird NICHT hier geladen, sondern im ersten showEvent (Layout dann
+        # fertig → korrekte Insets) → EIN sauberer Load statt mehrfachem Reload-Flackern.
         self._proc = psutil.Process()
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._update_status)
@@ -506,20 +515,61 @@ class BrowserWindow(QMainWindow):
 
     def showEvent(self, e) -> None:
         super().showEvent(e)
-        # Erst beim Anzeigen ist das Layout final → Chrome-Insets korrekt messbar. Im
-        # __init__ war die Geometrie noch nicht gesetzt (Insets = Müll) → .bg-Naht beim
-        # Launch, die bisher erst ein Glas-Toggle behob. Einmal nachmessen + neu laden.
-        if not getattr(self, "_did_initial_resync", False):
-            self._did_initial_resync = True
-            QTimer.singleShot(0, self._resync_immersive)
+        # Beim ERSTEN Anzeigen ist das Layout fertig → Chrome-Insets korrekt messbar.
+        # Erst JETZT den ersten Tab laden (mit korrektem Theme + korrekten Insets) → EIN
+        # sauberer Load, kein Reload-Flackern beim Start. singleShot(0) wartet die letzte
+        # Layout-Runde ab (im showEvent selbst ist die Geometrie noch nicht final).
+        if not getattr(self, "_did_initial_load", False):
+            self._did_initial_load = True
+            QTimer.singleShot(0, self._initial_load)
 
-    def _resync_immersive(self) -> None:
-        """Insets neu messen (Layout jetzt fertig) + Startseite damit neu laden, falls
-        immersiv. Behebt die Launch-Naht ohne manuelles Glas-Toggle."""
+    def _initial_load(self) -> None:
+        """Ersten Tab nach fertigem Layout laden (korrekte Insets, ein einziger Load)."""
         h = get_handler()
+        h.win_size = (self.width(), self.height())  # Glas-Frost auf Anzeige-Grösse rendern
         if h.immersive:
             h.insets = self._content_insets()
-            self._reload_newtabs()
+        if self.tabbar.count() == 0:
+            self.add_tab(HOME)
+        self._maybe_first_run()
+
+    def _maybe_first_run(self) -> None:
+        """Beim allerersten Start ein kleines Personalisierungs-Menü zeigen (Name + Zeitzone)."""
+        if self.cfg.value("setup_done", False, type=bool):
+            return
+        self.cfg.setValue("setup_done", True)  # nur einmal zeigen
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Willkommen bei Cipher")
+        dlg.setMinimumWidth(380)
+        lay = QVBoxLayout(dlg)
+        intro = QLabel("Willkommen! Personalisiere kurz deine Startseite — kannst du später "
+                       "jederzeit unter Einstellungen → Persönlich ändern.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        lay.addWidget(QLabel("Dein Name (für die Begrüssung)"))
+        name = QLineEdit(self._user_name)
+        name.setPlaceholderText("z. B. Damien — kannst du leer lassen")
+        lay.addWidget(name)
+        lay.addWidget(QLabel("Zeitzone (für Uhr & Datum)"))
+        tz = QComboBox()
+        tz.addItem("Automatisch (System)", "")
+        for z in self._timezones():
+            tz.addItem(z, z)
+        i = tz.findData(self._tz)
+        tz.setCurrentIndex(i if i >= 0 else 0)
+        lay.addWidget(tz)
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btns.accepted.connect(dlg.accept)
+        lay.addWidget(btns)
+        dlg.exec()
+        self._user_name = name.text().strip()
+        self._tz = tz.currentData() or ""
+        self.cfg.setValue("user_name", self._user_name)
+        self.cfg.setValue("timezone", self._tz)
+        if hasattr(self, "edit_name"):  # Settings-Felder spiegeln (eager gebaut)
+            self.edit_name.setText(self._user_name)
+        self._apply_personalization()
 
     def _maybe_check_update(self) -> None:
         """Höchstens 1×/Tag GitHub Releases prüfen (aus, solange kein Repo konfiguriert)."""
@@ -558,7 +608,7 @@ class BrowserWindow(QMainWindow):
         legen wir ein Wallpaper-Overlay über den Inhalt (deckungsgleich zum Host) → smoother
         Hintergrund. Web-View bleibt sichtbar darunter (rendert weiter). Nach dem letzten
         Resize entfernt `_ping_render_process` das Overlay (sobald der Frame fertig ist)."""
-        if not getattr(self, "_did_initial_resync", False):
+        if not getattr(self, "_did_initial_load", False):
             return  # vor dem ersten Show nicht eingreifen (Aufbau)
         tab = self.stack.currentWidget()
         if (tab is not None and get_handler().immersive
@@ -869,6 +919,16 @@ class BrowserWindow(QMainWindow):
         v.addWidget(t)
         return w, v
 
+    def _scroll_page(self, page: QWidget) -> QScrollArea:
+        """Sektion in einen vertikalen Scrollbereich packen → bei kleinem Fenster
+        scrollt der Inhalt, statt sich zu stauchen/überlappen (Damien-Wunsch)."""
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)  # Inhalt füllt die Breite, scrollt bei Höhen-Überlauf
+        sa.setFrameShape(QFrame.Shape.NoFrame)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sa.setWidget(page)
+        return sa
+
     def _build_performance_section(self) -> QWidget:
         w, v = self._section("Performance")
         lbl = QLabel("Tab-Sleeping")
@@ -917,6 +977,68 @@ class BrowserWindow(QMainWindow):
         v.addStretch(1)
         return w
 
+    def _build_personal_section(self) -> QWidget:
+        w, v = self._section("Persönlich")
+        info = QLabel("So begrüsst dich die Startseite. Uhrzeit und Datum kommen automatisch "
+                      "aus deinem System — die Zeitzone kannst du bei Bedarf überschreiben.")
+        info.setWordWrap(True)
+        v.addWidget(info)
+        v.addWidget(QLabel("Dein Name (für die Begrüssung)"))
+        self.edit_name = QLineEdit(self._user_name)
+        self.edit_name.setPlaceholderText("z. B. Damien — leer = ohne Namen")
+        self.edit_name.textChanged.connect(self._on_personal_changed)
+        v.addWidget(self.edit_name)
+        v.addWidget(QLabel("Zeitzone (für Uhr & Datum)"))
+        self.cmb_tz = QComboBox()
+        self.cmb_tz.addItem("Automatisch (System)", "")
+        for tz in self._timezones():
+            self.cmb_tz.addItem(tz, tz)
+        i = self.cmb_tz.findData(self._tz)
+        self.cmb_tz.setCurrentIndex(i if i >= 0 else 0)
+        self.cmb_tz.currentIndexChanged.connect(self._on_personal_changed)
+        v.addWidget(self.cmb_tz)
+        v.addStretch(1)
+        return w
+
+    @staticmethod
+    def _timezones() -> list:
+        """IANA-Zeitzonen für die Combo. `zoneinfo.available_timezones()` ist auf Windows
+        LEER (keine tzdata-DB; Chromium in der Web-View bringt seine eigene mit, darum geht
+        die Uhr trotzdem) → dann kuratierte Liste. Default ist eh „Automatisch (System)"."""
+        try:
+            import zoneinfo
+            zones = sorted(zoneinfo.available_timezones())
+            if zones:
+                return zones
+        except Exception:
+            pass
+        return [
+            "UTC",
+            "Europe/Zurich", "Europe/Berlin", "Europe/Vienna", "Europe/Paris", "Europe/London",
+            "Europe/Madrid", "Europe/Rome", "Europe/Amsterdam", "Europe/Lisbon", "Europe/Warsaw",
+            "Europe/Prague", "Europe/Stockholm", "Europe/Helsinki", "Europe/Athens",
+            "Europe/Istanbul", "Europe/Moscow", "Europe/Kyiv",
+            "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+            "America/Toronto", "America/Mexico_City", "America/Sao_Paulo",
+            "America/Argentina/Buenos_Aires",
+            "Asia/Dubai", "Asia/Kolkata", "Asia/Bangkok", "Asia/Singapore", "Asia/Hong_Kong",
+            "Asia/Shanghai", "Asia/Tokyo", "Asia/Seoul", "Asia/Jerusalem",
+            "Australia/Perth", "Australia/Sydney", "Pacific/Auckland",
+            "Africa/Cairo", "Africa/Johannesburg", "Africa/Lagos",
+        ]
+
+    def _on_personal_changed(self, *_) -> None:
+        self._user_name = self.edit_name.text().strip()
+        self._tz = self.cmb_tz.currentData() or ""
+        self.cfg.setValue("user_name", self._user_name)
+        self.cfg.setValue("timezone", self._tz)
+        self._apply_personalization()
+
+    def _apply_personalization(self) -> None:
+        get_handler().user_name = self._user_name
+        get_handler().tz = self._tz
+        self._glass_reload_timer.start()  # entprellt die Startseite neu laden
+
     def _build_appearance_section(self) -> QWidget:
         w, v = self._section("Aussehen")
         lbl = QLabel("Theme")
@@ -950,7 +1072,7 @@ class BrowserWindow(QMainWindow):
         v.addWidget(self.chk_glossy)
         self._glass_group, gg = self._slider_group()
         self.lbl_gblur, self.sld_gblur = self._glass_slider(
-            gg, "Frost (Milchglas)", 0, 100, self._glass_frost)
+            gg, "Verschwommenheit", 0, 100, self._glass_frost)
         self.lbl_gedge, self.sld_gedge = self._glass_slider(gg, "Kante", 0, 100, self._glass_edge)
         self.lbl_gdepth, self.sld_gdepth = self._glass_slider(gg, "Dicke", 0, 100, self._glass_depth)
         v.addWidget(self._glass_group)
@@ -963,11 +1085,25 @@ class BrowserWindow(QMainWindow):
         v.addWidget(self.chk_glass_chrome)
         self._chrome_group, cg = self._slider_group()
         self.lbl_cfrost, self.sld_cfrost = self._chrome_slider(
-            cg, "Frost (Milchglas)", self._chrome_frost)
+            cg, "Verschwommenheit", self._chrome_frost)
         self.lbl_calpha, self.sld_calpha = self._chrome_slider(
             cg, "Durchsichtigkeit", self._chrome_alpha)
         self.lbl_cdim, self.sld_cdim = self._chrome_slider(cg, "Abdunklung", self._chrome_dim)
         v.addWidget(self._chrome_group)
+
+        # Animierter Frost: nur bei GIF-Wallpapern relevant. Wählt, wie der Frost mit
+        # einem bewegten Hintergrund umgeht (Performance ↔ Qualität).
+        lbl_af = QLabel("Animierter Frost (GIF-Wallpaper)")
+        lbl_af.setProperty("role", "section")
+        v.addWidget(lbl_af)
+        self.cmb_anim_frost = QComboBox()
+        self.cmb_anim_frost.addItem("Statisch (sparsam)", "static")
+        self.cmb_anim_frost.addItem("Noise-Glas (flüssig)", "fake")
+        self.cmb_anim_frost.addItem("Echter Blur (Qualität)", "blur")
+        _i = self.cmb_anim_frost.findData(self._anim_frost)
+        self.cmb_anim_frost.setCurrentIndex(_i if _i >= 0 else 0)
+        self.cmb_anim_frost.currentIndexChanged.connect(self._on_anim_frost_changed)
+        v.addWidget(self.cmb_anim_frost)
 
         self._glass_group.setVisible(self._glossy)
         self._chrome_group.setVisible(self._glass_chrome)
@@ -1062,6 +1198,7 @@ class BrowserWindow(QMainWindow):
     def _reload_newtabs(self) -> None:
         """Alle Startseiten-Tabs mit Cache-Buster neu laden (bäckt aktuelle Glas-Werte
         in :root – Live-JS-Update rendert in dieser QtWebEngine nicht)."""
+        get_handler().win_size = (self.width(), self.height())  # Glas-Frost auf Anzeige-Grösse
         self._newtab_rev = getattr(self, "_newtab_rev", 0) + 1
         for i in range(self.tabbar.count()):
             tab = self.stack.widget(i)
@@ -1083,6 +1220,13 @@ class BrowserWindow(QMainWindow):
         if hasattr(self, "_chrome_group"):
             self._slide_group(self._chrome_group, self._glass_chrome)
         log.info("Glas-Leisten: %s", "an" if self._glass_chrome else "aus")
+
+    def _on_anim_frost_changed(self, *_) -> None:
+        self._anim_frost = self.cmb_anim_frost.currentData() or "static"
+        self.cfg.setValue("anim_frost", self._anim_frost)
+        # _apply_theme setzt das Handler-Feld + Host-Frost neu und lädt die Startseite neu.
+        self._apply_theme(self._current_theme)
+        log.info("Animierter Frost: %s", self._anim_frost)
 
     def _build_themes_section(self) -> QWidget:
         w, v = self._section("Themen")
@@ -1193,15 +1337,19 @@ class BrowserWindow(QMainWindow):
         cols, std_n, ext_n = 2, 0, 0
         for name, card, grid in self._theme_cards:
             match = (not text) or (text in name.lower())
-            card.setVisible(match)
             if not match:
+                card.setVisible(False)
                 continue
+            # WICHTIG: erst addWidget (setzt das Eltern-Widget), DANN sichtbar machen.
+            # Sonst zeigt setVisible(True) die noch elternlose Karte kurz als Top-Level-
+            # Fenster (216×168-Box) → flackert beim Start ~1× pro Theme auf.
             if grid is self._theme_grid_std:
                 grid.addWidget(card, std_n // cols, std_n % cols)
                 std_n += 1
             else:
                 grid.addWidget(card, ext_n // cols, ext_n % cols)
                 ext_n += 1
+            card.setVisible(True)
         self._grp_std.setVisible(std_n > 0)
         self._grp_ext.setVisible(ext_n > 0)
 
@@ -1378,6 +1526,7 @@ class BrowserWindow(QMainWindow):
         stack = self._settings_stack = QStackedWidget()
         col = self._themes[self._current_theme]["text"]
         pages = (
+            ("Persönlich", gear_icon(col), self._build_personal_section()),
             ("Darstellung", settings_icon(col), self._build_appearance_section()),
             ("Webseiten", globe_icon(col), self._build_webpages_section()),
             ("Suche", search_icon(col), self._build_search_section()),
@@ -1387,7 +1536,9 @@ class BrowserWindow(QMainWindow):
         )
         for title, icon, page in pages:
             QListWidgetItem(icon, title, cats)
-            stack.addWidget(page)
+            # „Themen" bringt schon einen eigenen Scrollbereich (Karten-Grid) mit →
+            # nicht doppelt wrappen; alle anderen Sektionen scrollen bei kleinem Fenster.
+            stack.addWidget(page if title == "Themen" else self._scroll_page(page))
         cats.currentRowChanged.connect(stack.setCurrentIndex)
         cats.setCurrentRow(0)
 
@@ -1399,13 +1550,14 @@ class BrowserWindow(QMainWindow):
         if self._settings_win is None:
             self._settings_win = self._build_settings_window()
         row = {
-            "appearance": 0,
-            "webpages": 1,
-            "search": 2,
-            "privacy": 3,
-            "performance": 4,
-            "themes": 5,
-        }.get(category, 0)
+            "personal": 0,
+            "appearance": 1,
+            "webpages": 2,
+            "search": 3,
+            "privacy": 4,
+            "performance": 5,
+            "themes": 6,
+        }.get(category, 1)
         self._settings_cats.setCurrentRow(row)
         self._settings_win.show()
         self._settings_win.raise_()
@@ -1473,15 +1625,19 @@ class BrowserWindow(QMainWindow):
         handler.set_theme(theme)
         self._refresh_toolbar_icons(theme["text"])
         self.tabbar.set_colors(theme)  # X/Pin-Farben + Masken-Hintergründe (sonst X unsichtbar)
+        self.tabbar.set_glass(self._glass_chrome)  # Glas-Leisten → keine solide X-Masken-Box
         # Immersiv = Bild-Wallpaper + Glas-Leisten: das Fenster malt das Wallpaper hinter
         # dem Chrome; die Startseite koppelt ihr .bg an die Fenster-Cover-Skalierung
         # (Insets = Chrome-Höhen) → keine Naht Chrome↔Inhalt. Web-View bleibt opak.
         wp = theme.get("wallpaper")
         is_img = bool(wp) and "." in wp and \
             wp.lower().rsplit(".", 1)[-1] not in ("mp4", "webm", "ogg")
+        ext = wp.lower().rsplit(".", 1)[-1] if (wp and "." in wp) else ""
+        is_anim = is_img and ext == "gif"  # animiertes Wallpaper → Frost-Modus greift
         immersive = self._glass_chrome and is_img
         h = get_handler()
         h.immersive = immersive
+        h.anim_frost_mode = self._anim_frost
         h.insets = self._content_insets() if immersive else (0, 0, 0, 0)
         h.dim_override = (self._chrome_dim / 100.0) if immersive else None
         bgc = self._page_bg_color(theme)
@@ -1504,8 +1660,12 @@ class BrowserWindow(QMainWindow):
                 self._host.set_background(
                     pm if (pm and not pm.isNull()) else None, bgc, wp_dim)
                 # Frost = Weichzeichnung des Wallpapers hinter den Leisten (set_background
-                # verwirft den Cache, daher danach setzen).
-                self._host.set_frost(self._chrome_frost / 100.0 if pm else 0.0)
+                # verwirft den Cache, daher danach setzen). Bei animiertem GIF im Fake-Modus
+                # die Leisten SCHARF (frost 0) → passt zum scharfen live-GIF im Startseiten-Glas.
+                fr = self._chrome_frost / 100.0 if pm else 0.0
+                if is_anim and self._anim_frost == "fake":
+                    fr = 0.0
+                self._host.set_frost(fr)
             else:
                 # Solide Leisten → kein Wallpaper hinterm Chrome, einfarbig wie früher.
                 self._host.set_background(None, QColor(theme["bg"]), 0.0)

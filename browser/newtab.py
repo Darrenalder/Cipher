@@ -13,6 +13,8 @@ Routen:
   app://newtab/wallpaper   -> Rohdaten des Wallpapers des aktuellen Themes
 """
 
+import json
+
 from PyQt6.QtCore import QBuffer, QIODevice, QByteArray, QUrlQuery, Qt
 from PyQt6.QtGui import QImage, QImageReader
 from PyQt6.QtWebEngineCore import (
@@ -60,6 +62,10 @@ class AppSchemeHandler(QWebEngineUrlSchemeHandler):
         self.insets = (0, 0, 0, 0)  # Chrome-Höhen (top, right, bottom, left) für .bg-Insets
         self.dim_override = None  # Abdunklung im Immersiv-Modus = Host-dim (sonst None)
         self._blur_cache = {}  # (Wallpaper-Pfad, Frost) → geblurrte PNG-Bytes (Glas-Frost)
+        self.user_name = ""  # Begrüssung „Guten Morgen, <Name>" ("" = ohne Name)
+        self.tz = ""         # IANA-Zeitzone für Uhr/Datum ("" = System-Zeitzone)
+        self.win_size = (0, 0)  # Fenstergrösse → Glas-Frost auf Anzeige-Grösse rendern (1:1, s. _blurred_png)
+        self.anim_frost_mode = "static"  # GIF-Wallpaper: static (Frame-1) | fake (live-GIF + Noise) | blur (live-GIF + CSS-Blur)
 
     def set_theme(self, theme: dict) -> None:
         self.theme = {**DEFAULT_THEME, **(theme or {})}
@@ -73,6 +79,7 @@ class AppSchemeHandler(QWebEngineUrlSchemeHandler):
             html = build_newtab_html(
                 self.theme, self._rev, self.glossy, self.glass,
                 self.immersive, self.insets, self.dim_override,
+                self.user_name, self.tz, self.anim_frost_mode,
             ).encode("utf-8")
             self._reply(job, b"text/html", html)
         else:
@@ -87,8 +94,10 @@ class AppSchemeHandler(QWebEngineUrlSchemeHandler):
                 # ?blur=<0..1> → Wallpaper Qt-seitig runter-/hochskalieren (gleicher
                 # Downscale-Algorithmus wie der Leisten-Frost) und als PNG ausliefern →
                 # das Glas zeigt dieselbe Körnung statt des glatten CSS-filter:blur.
+                # blur-Param vorhanden (auch =0) → Glas-Bild: immer auf Anzeige-Grösse
+                # cover-skaliert (1:1, s. _blurred_png). Fehlt der Param (= .bg) → rohes Bild.
                 blur = self._blur_param(job)
-                if blur > 0 and ext not in ("mp4", "webm", "ogg"):
+                if blur >= 0 and ext not in ("mp4", "webm", "ogg"):
                     png = self._blurred_png(str(path), blur)
                     if png is not None:
                         self._reply(job, b"image/png", png)
@@ -100,31 +109,43 @@ class AppSchemeHandler(QWebEngineUrlSchemeHandler):
 
     @staticmethod
     def _blur_param(job) -> float:
+        """blur-Wert (0..1) wenn der Param da ist, sonst -1 (= nicht angefragt → scharf/roh)."""
         q = QUrlQuery(job.requestUrl())
+        if not q.hasQueryItem("blur"):
+            return -1.0
         try:
             return max(0.0, min(1.0, float(q.queryItemValue("blur"))))
         except (ValueError, TypeError):
-            return 0.0
+            return -1.0
 
     def _blurred_png(self, path: str, frost: float):
-        """Wallpaper per Downscale→Upscale weichzeichnen (identisch zum Leisten-Frost in
-        window._blur_pixmap) und als PNG-Bytes liefern. Pro (Datei, Frost) gecacht."""
-        key = (path, round(frost, 2))
+        """Glas-Frost als „Single Source of Truth" (Gemini): das Wallpaper auf die EXAKTE
+        Anzeige-Grösse (Fenster-Cover = alignGlass-`Sw×Sh`) cover-skalieren, dort per
+        Downscale→Upscale blurren (identisch zu window._blur_pixmap) und das fertige Bild
+        ausliefern. Das CSS zeigt es dann **1:1** (background-size = exakt diese Grösse) →
+        Chromium/Skia rechnet NICHT nach → gleiche Körnung wie die Qt-Leisten. (Vorher:
+        Bild ≠ Anzeige-Grösse → CSS-Re-Scale glättete den Qt-Frost weg.) Pro (Datei, Frost,
+        Fenstergrösse) gecacht."""
+        w, h = self.win_size
+        key = (path, round(frost, 2), w, h)
         cached = self._blur_cache.get(key)
         if cached is not None:
             return cached
         img = QImage(path)
         if img.isNull():
             return None
-        if img.width() > 1600:  # auf Anzeige-nahe Grösse begrenzen (Tempo + Körnung wie Chrome)
-            img = img.scaledToWidth(1600, Qt.TransformationMode.SmoothTransformation)
+        if w > 0 and h > 0:  # aufs Fenster-Cover bringen = Anzeige-Grösse der .gb-Elemente
+            img = img.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                             Qt.TransformationMode.SmoothTransformation)
+        elif img.width() > 1280:
+            img = img.scaledToWidth(1280, Qt.TransformationMode.SmoothTransformation)
         f = 1.0 + frost * 22.0
         sw = max(1, int(img.width() / f))
         sh = max(1, int(img.height() / f))
         small = img.scaled(sw, sh, Qt.AspectRatioMode.IgnoreAspectRatio,
                            Qt.TransformationMode.FastTransformation)
         blurred = small.scaled(img.width(), img.height(), Qt.AspectRatioMode.IgnoreAspectRatio,
-                               Qt.TransformationMode.SmoothTransformation)
+                               Qt.TransformationMode.SmoothTransformation)  # zurück auf Anzeige-Grösse
         ba = QByteArray()
         buf = QBuffer(ba)
         buf.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -309,7 +330,10 @@ _HTML = """<!DOCTYPE html>
   --g-edge: __G_EDGE__;     /* Kante 0–1 */
   --g-depth: __G_DEPTH__;   /* Dicke 0–1 */
   --wp: __WP__;             /* scharfes Wallpaper (oder none) */
-  --wp-frost: __WP_FROST__; /* Qt-vorab-geblurrtes Wallpaper fürs Glas (Downscale-Körnung) */
+  --wp-frost: __WP_FROST__; /* Glas-Hintergrundbild: vorab-geblurrtes PNG (statisch) oder live-GIF (animiert) */
+  --gb-filter: __GB_FILTER__;     /* none | blur(Npx) — nur animiertes GIF im Qualitäts-Modus */
+  --gb-inset: __GB_INSET__;       /* 0 | negativ: Blur-Überstand, damit der weiche Rand ausserhalb des Clips liegt */
+  --gb-rendering: __GB_RENDER__;  /* crisp-edges (Pixel-Lock-PNG) | auto (skaliertes live-GIF) */
   /* Entsättigte SVG-Noise als Glas-Körnung (simuliert Brechung, ~0 GPU-Kosten,
      Zero-Request Data-URI). Idee von Gemini, hier entsättigt + tilebar. */
   --glass-noise: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100%" height="100%" filter="url(%23n)" opacity="0.09"/></svg>');
@@ -342,9 +366,14 @@ html,body { height:100%; overflow:hidden;
    background-size/-position pro Element INLINE → deckungsgleich mit dem Haupt-Hintergrund
    (echtes Glas), statt dass jedes Element das ganze Bild cover-zeigt. Frost 0 → opacity 0
    = klares Glas. Eigenes <i>-Element statt ::before, damit JS es direkt stylen kann. */
-.gb { position:absolute; inset:0; z-index:0; pointer-events:none;
+.gb { position:absolute; inset:var(--gb-inset,0); z-index:0; pointer-events:none;
   background-image:var(--wp-frost); background-repeat:no-repeat;
-  opacity:var(--g-frost); }
+  image-rendering:var(--gb-rendering,crisp-edges); filter:var(--gb-filter,none); }
+  /* Statisch: Bild auf Anzeige-Grösse → 1:1, kein Skia-Re-Scale (crisp-edges). Animiert
+  (blur): live-GIF + filter:blur, inset negativ (Rand-Überstand). Animiert (fake): live-GIF.
+  KEIN opacity:var(--g-frost) mehr — das machte die Blur-Ebene halb-durchsichtig, sodass
+  der scharfe Hintergrund durchschimmerte (Doppelbild). Voll deckend wie die Leisten;
+  Frost 0 → Bild ist eh das scharfe Wallpaper (blur=0) = klares Glas. */
 .search::after { content:""; position:absolute; inset:0; z-index:1; pointer-events:none;
   background-color:rgba(12,14,18,.10);  /* kleiner KONSTANTER Ton, NICHT vom Frost → Slider dunkelt nicht */
   background-image:var(--glass-noise); background-size:140px 140px; }
@@ -447,15 +476,19 @@ function go(e){
   location.href=url;
   return false;
 }
-const DAYS=['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
-const MONTHS=['Januar','Februar','März','April','Mai','Juni','Juli','August',
-  'September','Oktober','November','Dezember'];
+/* Name + Zeitzone aus den Einstellungen (personalisierbar; NAME="" → ohne Name,
+   TZ="" → System-Zeitzone). Werte sind JSON-escaped injiziert. */
+const NAME=__NAME__, TZ=__TZ__;
+function _tz(extra){ const o=Object.assign({}, extra); if(TZ) o.timeZone=TZ; return o; }
 function set(id,val){ const e=document.getElementById(id); if(e.textContent!==val) e.textContent=val; }
 function tick(){
-  const d=new Date(), p=n=>String(n).padStart(2,'0'), h=d.getHours();
-  set('clock', p(h)+':'+p(d.getMinutes()));
+  const d=new Date();
+  set('clock', d.toLocaleTimeString('de-DE', _tz({hour:'2-digit', minute:'2-digit'})));
+  let h=parseInt(d.toLocaleString('en-US', _tz({hour:'2-digit', hour12:false})), 10);
+  if(h===24) h=0;
   const greet=h<5?'Gute Nacht':h<12?'Guten Morgen':h<18?'Guten Tag':'Guten Abend';
-  set('sub', greet+', Damien · '+DAYS[d.getDay()]+', '+d.getDate()+'. '+MONTHS[d.getMonth()]);
+  const date=d.toLocaleDateString('de-DE', _tz({weekday:'long', day:'numeric', month:'long'}));
+  set('sub', greet + (NAME ? ', '+NAME : '') + ' · ' + date);
 }
 tick(); setInterval(tick,10000);
 
@@ -473,7 +506,9 @@ function alignGlass(){
   const s=Math.max(Ww/WP_W, Wh/WP_H), Sw=WP_W*s, Sh=WP_H*s;
   const wx=-iL+(Ww-Sw)/2, wy=-iT+(Wh-Sh)/2;
   document.querySelectorAll('.gb').forEach(g=>{
-    const r=g.parentElement.getBoundingClientRect();
+    // Eigenes Rect (nicht das des Elternteils): so stimmt die Ausrichtung auch bei
+    // negativem inset (Blur-Modus, .gb ragt über sein Elternteil hinaus).
+    const r=g.getBoundingClientRect();
     g.style.backgroundSize=Sw+'px '+Sh+'px';
     g.style.backgroundPosition=(wx-r.left)+'px '+(wy-r.top)+'px';
   });
@@ -511,7 +546,8 @@ def _dial_html(items) -> str:
 
 def build_newtab_html(theme: dict, rev: int = 0, glossy: bool = True,
                       glass: tuple = (0.65, 0.35, 0.45), immersive: bool = False,
-                      insets: tuple = (0, 0, 0, 0), dim_override=None) -> str:
+                      insets: tuple = (0, 0, 0, 0), dim_override=None,
+                      name: str = "", tz: str = "", anim_frost: str = "static") -> str:
     from .profile import get_search_url  # lazy: vermeidet Import-Zyklus
 
     g_frost, g_edge, g_depth = glass
@@ -547,14 +583,33 @@ def build_newtab_html(theme: dict, rev: int = 0, glossy: bool = True,
 
     body_classes = "" if glossy else "flat"
 
-    # Wallpaper-URLs fürs Glas. Nur bei BILD-Wallpaper (sonst none). --wp = scharf,
-    # --wp-frost = Qt-vorab-geblurrt (Downscale, identisch zum Leisten-Frost; Blur =
-    # aktueller Frost in die URL gebacken → Reload bei Frost-Änderung holt die neue).
+    # Wallpaper-URLs fürs Glas. Nur bei BILD-Wallpaper (sonst none). --wp = scharf.
     is_image = bool(wallpaper) and "." in wallpaper and \
         wallpaper.lower().rsplit(".", 1)[-1] not in ("mp4", "webm", "ogg")
+    ext = wallpaper.lower().rsplit(".", 1)[-1] if (wallpaper and "." in wallpaper) else ""
+    is_animated = is_image and ext == "gif"  # animiertes Wallpaper → Frost-Modus greift
     wp_css = f"url('app://newtab/wallpaper?v={rev}')" if is_image else "none"
-    wp_frost_css = (f"url('app://newtab/wallpaper?v={rev}&blur={g_frost}')"
-                    if is_image else "none")
+
+    # --wp-frost = Glas-Hintergrundbild (.gb). Drei Wege:
+    #  • statisches Bild → Qt-vorab-geblurrtes PNG auf Anzeige-Grösse, 1:1 (Pixel-Lock,
+    #    s. _blurred_png). Blur in die URL gebacken → Reload bei Frost-Änderung holt die neue.
+    #  • animiertes GIF + "blur"     → live-GIF + CSS-filter:blur (GPU, animiert, Qualität).
+    #  • animiertes GIF + "fake"     → live-GIF, kein Blur, Noise/Tönung via ::after (flüssig).
+    #  • animiertes GIF + "static"   → wie statisches Bild (Frame-1-Frost, sparsam).
+    gb_filter, gb_inset, gb_rendering = "none", "0", "crisp-edges"
+    if is_animated and anim_frost == "blur":
+        wp_frost_css = wp_css                       # live-GIF
+        bpx = max(1, round(g_frost * 30))
+        gb_filter = f"blur({bpx}px)"
+        gb_inset = f"-{bpx * 2}px"                   # Überstand: weicher Blur-Rand liegt ausserhalb des Clips
+        gb_rendering = "auto"
+    elif is_animated and anim_frost == "fake":
+        wp_frost_css = wp_css                        # live-GIF, Frost via Noise/Tönung (::after)
+        gb_rendering = "auto"
+    elif is_image:
+        wp_frost_css = f"url('app://newtab/wallpaper?v={rev}&blur={g_frost}')"
+    else:
+        wp_frost_css = "none"
     # Wallpaper-Naturgrösse + Insets → die JS-Glas-Ausrichtung (alignGlass) positioniert
     # das Glas-Bild deckungsgleich zum Haupt-Hintergrund (echtes Glas statt „jedes Element
     # zeigt das ganze Bild"). Insets = (top, right, bottom, left); 0 wenn nicht immersiv.
@@ -593,10 +648,15 @@ def build_newtab_html(theme: dict, rev: int = 0, glossy: bool = True,
         "__HTMLBG__": html_bg,
         "__WP__": wp_css,
         "__WP_FROST__": wp_frost_css,
+        "__GB_FILTER__": gb_filter,
+        "__GB_INSET__": gb_inset,
+        "__GB_RENDER__": gb_rendering,
         "__WP_W__": str(wp_w),
         "__WP_H__": str(wp_h),
         "__INS_T__": str(ins_t), "__INS_R__": str(ins_r),
         "__INS_B__": str(ins_b), "__INS_L__": str(ins_l),
+        "__NAME__": json.dumps(name or ""),  # JSON-escaped → sicher als JS-String
+        "__TZ__": json.dumps(tz or ""),
         "__G_FROST__": str(g_frost),
         "__G_EDGE__": str(g_edge),
         "__G_DEPTH__": str(g_depth),
