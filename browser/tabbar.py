@@ -37,6 +37,7 @@ class TabBar(QTabBar):
         self._bg = "#161b22"
         self._bg_sel = "#1f2630"
         self._border = "#2a3142"
+        self._glass = False  # Glas-Leisten an → keine solide X-Masken-Füllung (würde als Kasten herausstechen)
 
         self._plus = QToolButton(self)
         self._plus.setProperty("tabplus", "1")
@@ -50,6 +51,10 @@ class TabBar(QTabBar):
     def set_plus_icon(self, icon) -> None:
         self._plus.setIcon(icon)
         self._plus.setText("")
+
+    def set_glass(self, on: bool) -> None:
+        self._glass = bool(on)
+        self.update()
 
     def set_colors(self, theme: dict) -> None:
         self._close_color = theme.get("text", "#ffffff")
@@ -110,9 +115,13 @@ class TabBar(QTabBar):
             if not self._should_show_x(i):
                 continue
             rect = self._close_rect(i)
-            # Text dahinter mit Tab-Farbe maskieren
-            bg = self._bg_sel if (i == cur or i == self._hover) else self._bg
-            p.fillRect(rect.adjusted(-4, -2, 4, 2), QColor(bg))
+            # Text dahinter mit Tab-Farbe maskieren — NUR bei soliden Leisten. Bei
+            # Glas-Leisten würde der solide Kasten auf dem transluzenten/verschwommenen
+            # Hintergrund als Kasten herausstechen; dann ohne Maske (das Hover-Highlight
+            # bzw. die Tab-Verkürzung reichen).
+            if not self._glass:
+                bg = self._bg_sel if (i == cur or i == self._hover) else self._bg
+                p.fillRect(rect.adjusted(-4, -2, 4, 2), QColor(bg))
             # Hover-Highlight auf dem X
             if i == self._hover_close:
                 p.setPen(Qt.PenStyle.NoPen)

@@ -4,4 +4,4 @@ Pro Release hochzählen UND dieselbe Version als Git-Tag/GitHub-Release verwende
 (z. B. Tag ``v0.2.0``) — der Auto-Updater vergleicht damit.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
