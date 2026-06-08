@@ -106,9 +106,9 @@ class DataPoisoning(QObject):
         self._enabled = False
         self._paused = False                     # z. B. waehrend Game-Mode
         self._current_query = ""                 # fuer das Ergebnis-Log
-        # Realistische Intervalle: 2–15 min Grundabstand, mit menschlichem Jitter
-        # (gelegentliche Folgesuchen + seltene laengere Pausen, s. _next_delay_s).
-        self._min_s, self._max_s = 120, 900
+        # Grundabstand (Ø) in Sekunden, konfigurierbar via set_interval (Slider in Settings).
+        # Menschlicher Jitter um diesen Wert herum, s. _next_delay_s.
+        self._base_s = 180
         self._burst_remaining = 0                # offene Folgesuchen der aktuellen "Session"
         self._count = 0
 
@@ -142,21 +142,32 @@ class DataPoisoning(QObject):
             log.info("Data Poisoning: fortgesetzt")
             self._schedule()
 
+    def set_interval(self, base_s: int) -> None:
+        """Durchschnittlichen Abstand (Sekunden) setzen (Slider in den Einstellungen).
+        Greift sofort: ist der Decoy aktiv, wird die naechste Suche mit dem neuen Wert
+        neu geplant, statt den schon laufenden alten Countdown abzuwarten."""
+        self._base_s = max(10, int(base_s))
+        if self._enabled and not self._paused and self._timer.isActive():
+            self._timer.start(self._next_delay_s() * 1000)
+
     # --- intern -----------------------------------------------------------
     def _next_delay_s(self) -> int:
-        """Naechster Abstand in Sekunden — menschlich wirkender Jitter statt starrer
-        Gleichverteilung: meist 2–15 min, gelegentlich kurze Folgesuchen (wie eine echte
-        Such-Session mit Verfeinerungen), selten eine laengere Abwesenheit."""
+        """Naechster Abstand in Sekunden — menschlich wirkender Jitter um ``_base_s`` (Ø):
+        meist ~base, gelegentlich kurze Folgesuchen (wie eine echte Such-Session mit
+        Verfeinerungen), selten eine laengere Abwesenheit. Skaliert mit dem Slider-Wert."""
+        base = self._base_s
         if self._burst_remaining > 0:            # Folgesuche der laufenden "Session" -> kurz danach
             self._burst_remaining -= 1
-            return random.randint(25, 90)
-        # Primaere Suche: normaler Abstand. Mit 30 % startet sie 1–2 schnelle Folgesuchen
+            lo = max(8, base // 12)
+            hi = min(120, max(lo + 5, base // 4))
+            return random.randint(lo, hi)
+        # Primaere Suche: normaler Abstand (~base). Mit 30 % startet sie 1–2 schnelle Folgesuchen
         # (Seeding aendert NICHT diesen Abstand, nur die naechsten) -> ~30 % der Abstaende kurz.
         if random.random() < 0.30:
             self._burst_remaining = random.randint(1, 2)
         if random.random() < 0.12:               # seltener laengere Pause (Abwesenheit)
-            return random.randint(self._max_s, self._max_s * 3)
-        return random.randint(self._min_s, self._max_s)
+            return random.randint(base, base * 3)
+        return random.randint(max(8, base // 2), max(base, base * 3 // 2))
 
     def _schedule(self) -> None:
         delay = self._next_delay_s()

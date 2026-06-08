@@ -343,7 +343,9 @@ class BrowserWindow(QMainWindow):
         QTimer.singleShot(6000, self._maybe_check_update)
         # Data Poisoning: zufällige Hintergrund-Suchen zur Verschleierung, default aus.
         self._decoy_enabled = self.cfg.value("decoy_enabled", False, type=bool)
+        self._decoy_interval_s = int(self.cfg.value("decoy_interval_s", 180))
         self._decoy = DataPoisoning(self._decoy_url_template, self)
+        self._decoy.set_interval(self._decoy_interval_s)
         if self._decoy_enabled:
             self._decoy.set_enabled(True)
         self._wp_avg_cache: dict[str, QColor] = {}  # Wallpaper-Durchschnittsfarbe
@@ -1538,10 +1540,21 @@ class BrowserWindow(QMainWindow):
         self.edit_decoy_target.textChanged.connect(
             lambda t: self.cfg.setValue("decoy_target", t.strip()))
         v.addWidget(self.edit_decoy_target)
-        hint = QLabel("Läuft über deine echte Sitzung (Cookies), Intervalle ~2–15 min. Aktivität "
-                      "siehst du im Log (logs/own-browser.log) bzw. in der Konsole („python main.py\"). "
-                      "Test-Ziel auf eine webhook.site-URL setzen, um die Anfragen live ankommen zu "
-                      "sehen. Im Game-Mode pausiert.")
+        self.lbl_decoy_interval = QLabel(self._fmt_decoy_interval(self._decoy_interval_s))
+        v.addWidget(self.lbl_decoy_interval)
+        self.sld_decoy_interval = QSlider(Qt.Orientation.Horizontal)
+        self.sld_decoy_interval.setRange(15, 900)   # ~15 s (Test) … ~15 min (realistisch)
+        self.sld_decoy_interval.setValue(self._decoy_interval_s)
+        self.sld_decoy_interval.setTracking(False)  # valueChanged erst beim Loslassen → kein Spam
+        self.sld_decoy_interval.sliderMoved.connect(
+            lambda val: self.lbl_decoy_interval.setText(self._fmt_decoy_interval(val)))
+        self.sld_decoy_interval.valueChanged.connect(self._on_decoy_interval_changed)
+        v.addWidget(self.sld_decoy_interval)
+        hint = QLabel("Läuft über deine echte Sitzung (Cookies). Abstand per Regler einstellbar "
+                      "(klein = häufiger, gut zum Testen; gross = unauffälliger). Aktivität siehst du "
+                      "im Log (logs/own-browser.log) bzw. in der Konsole („python main.py\"). Test-Ziel "
+                      "auf eine webhook.site-URL setzen, um die Anfragen live ankommen zu sehen. "
+                      "Im Game-Mode pausiert.")
         hint.setWordWrap(True)
         v.addWidget(hint)
 
@@ -1595,6 +1608,21 @@ class BrowserWindow(QMainWindow):
         self._decoy_enabled = bool(on)
         self.cfg.setValue("decoy_enabled", self._decoy_enabled)
         self._decoy.set_enabled(self._decoy_enabled)
+
+    def _on_decoy_interval_changed(self, v: int) -> None:
+        self._decoy_interval_s = int(v)
+        self.cfg.setValue("decoy_interval_s", self._decoy_interval_s)
+        self.lbl_decoy_interval.setText(self._fmt_decoy_interval(v))
+        self._decoy.set_interval(v)  # greift sofort (plant die nächste Suche neu)
+
+    @staticmethod
+    def _fmt_decoy_interval(v: int) -> str:
+        if v < 90:
+            txt = f"~{v} s"
+        else:
+            m = v / 60
+            txt = f"~{m:.0f} min" if abs(m - round(m)) < 0.05 else f"~{m:.1f} min"
+        return f"Durchschnittlicher Abstand: {txt}"
 
     def _decoy_url_template(self) -> str:
         """Ziel-URL fürs Data Poisoning. Optional via QSettings `decoy_target` überschreibbar

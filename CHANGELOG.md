@@ -6,9 +6,9 @@ Alle nennenswerten Änderungen an Cipher. Format grob nach [Keep a Changelog](ht
 
 ### Neu
 - **Data Poisoning (Datenspur verwässern):** Einstellungen → Datenschutz. Schickt in
-  realistischen Abständen (~2–15 min, mit menschlichem Jitter aus gelegentlichen Folgesuchen
-  und seltenen längeren Pausen) zufällige Such-Anfragen im Hintergrund, um dein Such-Profil mit
-  Rauschen zu verwässern (Idee wie TrackMeNot). Die Anfragen laufen über deine **echte Sitzung**
+  **einstellbaren** Abständen (Regler ~15 s bis ~15 min, Standard ~3 min; mit menschlichem
+  Jitter aus gelegentlichen Folgesuchen und seltenen längeren Pausen) zufällige Such-Anfragen
+  im Hintergrund, um dein Such-Profil mit Rauschen zu verwässern (Idee wie TrackMeNot). Die Anfragen laufen über deine **echte Sitzung**
   (Cookies/Profil) — für die Suchmaschine ununterscheidbar von einer echten Suche, damit sie das
   tatsächliche Profil verwässern statt nur anonymes Rauschen zu erzeugen. Standardmässig aus, im
   Game-Mode pausiert. Ressourcenschonend: die versteckte Seite wird zwischen den Suchen samt
