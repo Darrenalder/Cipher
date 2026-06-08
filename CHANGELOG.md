@@ -2,6 +2,22 @@
 
 Alle nennenswerten Änderungen an Cipher. Format grob nach [Keep a Changelog](https://keepachangelog.com/de/).
 
+## [0.1.3] — unveröffentlicht
+
+### Neu
+- **Data Poisoning (Datenspur verwässern):** Einstellungen → Datenschutz. Schickt in
+  realistischen Abständen (~2–15 min, mit menschlichem Jitter aus gelegentlichen Folgesuchen
+  und seltenen längeren Pausen) zufällige Such-Anfragen im Hintergrund, um dein Such-Profil mit
+  Rauschen zu verwässern (Idee wie TrackMeNot). Die Anfragen laufen über deine **echte Sitzung**
+  (Cookies/Profil) — für die Suchmaschine ununterscheidbar von einer echten Suche, damit sie das
+  tatsächliche Profil verwässern statt nur anonymes Rauschen zu erzeugen. Standardmässig aus, im
+  Game-Mode pausiert. Ressourcenschonend: die versteckte Seite wird zwischen den Suchen samt
+  Renderer-Prozess abgebaut (kein Dauer-RAM/-CPU im Leerlauf). Optionales Test-Ziel (z. B.
+  webhook.site) zum Mitverfolgen; jede Anfrage steht im Log (`logs/own-browser.log`)/Konsole.
+  Ehrliche Einordnung: Poisoning wirkt nur begrenzt (Profiler filtern Roboter-Rauschen oft
+  heraus) — der stärkere Hebel bleibt Prävention (Drittanbieter-Cookies blockiert + Startpage,
+  beides aktiv).
+
 ## [0.1.2] — 2026-06-08
 
 ### Neu

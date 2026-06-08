@@ -71,6 +71,7 @@ from .newtab import get_handler
 from .vivaldi_import import import_vivaldi
 from .applog import log
 from .updater import Updater, download_and_launch
+from .decoy import DataPoisoning
 from .version import __version__
 from .icons import (
     back_icon,
@@ -340,6 +341,11 @@ class BrowserWindow(QMainWindow):
         self._updater.check_failed.connect(self._on_update_failed)
         self._manual_update_check = False  # True während eines Button-Checks → Rückmeldung zeigen
         QTimer.singleShot(6000, self._maybe_check_update)
+        # Data Poisoning: zufällige Hintergrund-Suchen zur Verschleierung, default aus.
+        self._decoy_enabled = self.cfg.value("decoy_enabled", False, type=bool)
+        self._decoy = DataPoisoning(self._decoy_url_template, self)
+        if self._decoy_enabled:
+            self._decoy.set_enabled(True)
         self._wp_avg_cache: dict[str, QColor] = {}  # Wallpaper-Durchschnittsfarbe
         self._wp_pixmap_cache: dict[str, QPixmap] = {}  # Wallpaper als Fenster-Bg
         self._search_engine = self.cfg.value("search_engine", "Startpage")
@@ -940,6 +946,8 @@ class BrowserWindow(QMainWindow):
             self.chk_game.blockSignals(True)
             self.chk_game.setChecked(on)
             self.chk_game.blockSignals(False)
+        if hasattr(self, "_decoy"):
+            self._decoy.set_paused(on)  # im Game-Mode kein Hintergrund-Traffic
         self._update_status()
 
     # --- Icon-Rail + Einstellungs-Fenster ---------------------------------
@@ -1512,6 +1520,31 @@ class BrowserWindow(QMainWindow):
         self.chk_3pcookies.setChecked(self._block_3p)
         self.chk_3pcookies.toggled.connect(self._on_3pcookies_toggled)
         v.addWidget(self.chk_3pcookies)
+
+        lbl_obf = QLabel("Data Poisoning")
+        lbl_obf.setProperty("role", "section")
+        v.addWidget(lbl_obf)
+        self.chk_decoy = QCheckBox("Zufällige Such-Anfragen im Hintergrund (Datenspur verwässern)")
+        self.chk_decoy.setToolTip("Schickt alle paar Minuten eine zufällige Suche über deine "
+                                  "echte Sitzung (Cookies/Profil), um dein Such-Profil mit "
+                                  "Rauschen zu verwässern. Jede Anfrage steht im Log/Konsole. "
+                                  "Im Game-Mode pausiert.")
+        self.chk_decoy.setChecked(self._decoy_enabled)
+        self.chk_decoy.toggled.connect(self._on_decoy_toggled)
+        v.addWidget(self.chk_decoy)
+        self.edit_decoy_target = QLineEdit(self.cfg.value("decoy_target", "", type=str))
+        self.edit_decoy_target.setPlaceholderText(
+            "Test-Ziel (optional, {} = Query), z. B. https://webhook.site/<id>?q={}  —  leer = Suchmaschine")
+        self.edit_decoy_target.textChanged.connect(
+            lambda t: self.cfg.setValue("decoy_target", t.strip()))
+        v.addWidget(self.edit_decoy_target)
+        hint = QLabel("Läuft über deine echte Sitzung (Cookies), Intervalle ~2–15 min. Aktivität "
+                      "siehst du im Log (logs/own-browser.log) bzw. in der Konsole („python main.py\"). "
+                      "Test-Ziel auf eine webhook.site-URL setzen, um die Anfragen live ankommen zu "
+                      "sehen. Im Game-Mode pausiert.")
+        hint.setWordWrap(True)
+        v.addWidget(hint)
+
         lbl2 = QLabel("Browserdaten löschen")
         lbl2.setProperty("role", "section")
         v.addWidget(lbl2)
@@ -1557,6 +1590,17 @@ class BrowserWindow(QMainWindow):
         self._block_3p = on
         self.cfg.setValue("block_third_party_cookies", on)
         set_block_third_party(on)
+
+    def _on_decoy_toggled(self, on: bool) -> None:
+        self._decoy_enabled = bool(on)
+        self.cfg.setValue("decoy_enabled", self._decoy_enabled)
+        self._decoy.set_enabled(self._decoy_enabled)
+
+    def _decoy_url_template(self) -> str:
+        """Ziel-URL fürs Data Poisoning. Optional via QSettings `decoy_target` überschreibbar
+        (z. B. webhook.site zum Verifizieren), sonst die konfigurierte Suchmaschine. {} = Query."""
+        t = (self.cfg.value("decoy_target", "", type=str) or "").strip()
+        return t if t else get_search_url()
 
     def _on_defzoom_changed(self, val: int) -> None:
         self._default_zoom = val
