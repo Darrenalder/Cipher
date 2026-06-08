@@ -12,7 +12,10 @@ Alle nennenswerten Änderungen an Cipher. Format grob nach [Keep a Changelog](ht
   (Cookies/Profil) — für die Suchmaschine ununterscheidbar von einer echten Suche, damit sie das
   tatsächliche Profil verwässern statt nur anonymes Rauschen zu erzeugen. Standardmässig aus, im
   Game-Mode pausiert. Ressourcenschonend: die versteckte Seite wird zwischen den Suchen samt
-  Renderer-Prozess abgebaut (kein Dauer-RAM/-CPU im Leerlauf). Optionales Test-Ziel (z. B.
+  Renderer-Prozess abgebaut (kein Dauer-RAM/-CPU im Leerlauf). Die Anfragen ziehen aus einem
+  grossen mehrsprachigen Wortpool (DE/EN/FR/ES/IT, ~6500 Einträge: Städte × Such-Vorlagen +
+  Standalone-Themen je Sprache) → kombinatorisch hunderttausende mögliche Anfragen, für einen
+  Profiler praktisch nicht als feste Liste erkennbar. Optionales Test-Ziel (z. B.
   webhook.site) zum Mitverfolgen; jede Anfrage steht im Log (`logs/own-browser.log`)/Konsole.
   Ehrliche Einordnung: Poisoning wirkt nur begrenzt (Profiler filtern Roboter-Rauschen oft
   heraus) — der stärkere Hebel bleibt Prävention (Drittanbieter-Cookies blockiert + Startpage,

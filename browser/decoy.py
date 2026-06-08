@@ -32,61 +32,23 @@ from PyQt6.QtCore import QObject, QTimer, QUrl
 from PyQt6.QtWebEngineCore import QWebEnginePage
 
 from .applog import log
+from .decoy_words import CITIES, TEMPLATES, STANDALONE
 
-# Queries werden KOMBINATORISCH erzeugt: Städte + Sprach-Vorlagen -> viel mehr Varianz als
-# eine fixe Liste (und schwerer für einen Profiler als „bekannte Liste" zu erkennen).
-# Echte Umlaute/Akzente: wirkt natürlicher; quote() kodiert sie sauber (ü -> %C3%BC).
-
-# Internationale Standorte (werden in die Orts-Vorlagen eingesetzt).
-_CITIES = [
-    "zürich", "genf", "basel", "bern", "luzern", "berlin", "münchen", "hamburg",
-    "wien", "salzburg", "paris", "lyon", "marseille", "nizza", "madrid", "barcelona",
-    "valencia", "sevilla", "rom", "mailand", "florenz", "venedig", "neapel", "london",
-    "manchester", "edinburgh", "amsterdam", "lissabon", "prag", "istanbul", "athen",
-    "new york", "los angeles", "chicago", "toronto", "tokyo", "osaka", "seoul",
-    "bangkok", "singapur", "dubai", "sydney", "kapstadt", "rio de janeiro",
-]
-
-# Orts-Vorlagen je Sprache ('{}' = Stadt).
-_TEMPLATES = {
-    "de": ["wetter {}", "hotels in {}", "beste restaurants {}", "flüge nach {}",
-           "sehenswürdigkeiten {}", "wochenende in {}", "öffentliche verkehrsmittel {}"],
-    "en": ["weather {}", "things to do in {}", "best coffee in {}", "flights to {}",
-           "hotels in {}", "what to see in {}", "nightlife {}"],
-    "fr": ["météo {}", "que faire à {}", "hôtels {}", "vols pour {}",
-           "restaurants {}", "que visiter à {}"],
-    "es": ["tiempo en {}", "qué ver en {}", "hoteles en {}", "vuelos a {}",
-           "mejores restaurantes {}", "qué hacer en {}"],
-    "it": ["meteo {}", "cosa vedere a {}", "hotel {}", "voli per {}",
-           "ristoranti {}", "cosa fare a {}"],
-}
-
-# Themenbezogene Anfragen ohne Ort, je Sprache.
-_STANDALONE = {
-    "de": ["python tutorial", "beste kopfhörer", "rezept lasagne", "vitamin d wirkung",
-           "grafikkarte vergleich", "besser schlafen", "elektroauto reichweite",
-           "gitarre lernen für anfänger", "passwort manager", "monitor 144hz"],
-    "en": ["python tutorial", "best wireless earbuds", "lasagna recipe", "how to sleep better",
-           "graphics card comparison", "learn guitar", "password manager", "mechanical keyboard",
-           "best vpn 2026", "morning routine ideas"],
-    "fr": ["recette lasagnes", "meilleurs écouteurs", "apprendre la guitare", "comment mieux dormir",
-           "comparatif carte graphique", "gestionnaire de mots de passe", "idées repas rapides"],
-    "es": ["receta de lasaña", "mejores auriculares", "aprender guitarra", "cómo dormir mejor",
-           "comparativa tarjeta gráfica", "gestor de contraseñas", "rutina de ejercicio"],
-    "it": ["ricetta lasagne", "migliori auricolari", "imparare la chitarra", "come dormire meglio",
-           "confronto schede video", "gestore password", "ricette veloci"],
-}
-
-_LANGS = list(_TEMPLATES.keys())
+# Queries werden KOMBINATORISCH erzeugt: Städte × Sprach-Vorlagen + Standalone-Themen, je
+# Sprache eigene Listen (browser/decoy_words/, ~6500 Einträge) -> riesiger Variantenraum
+# (pro Sprache hunderttausende mögliche Anfragen), für einen Profiler praktisch nicht als
+# „bekannte Liste" erkennbar. Echte Umlaute/Akzente wirken natürlicher; quote() kodiert
+# sie sauber (ü -> %C3%BC).
+_LANGS = list(TEMPLATES.keys())
 
 
 def _random_query() -> str:
     """Eine zufällige, organisch wirkende Suchanfrage: zufällige Sprache, zu ~60 %
-    ortsbezogen (zufälliger Standort), sonst thematisch."""
+    ortsbezogen (Stadt in der jeweiligen Sprache), sonst thematisch."""
     lang = random.choice(_LANGS)
     if random.random() < 0.6:
-        return random.choice(_TEMPLATES[lang]).format(random.choice(_CITIES))
-    return random.choice(_STANDALONE[lang])
+        return random.choice(TEMPLATES[lang]).format(random.choice(CITIES[lang]))
+    return random.choice(STANDALONE[lang])
 
 
 class DataPoisoning(QObject):
