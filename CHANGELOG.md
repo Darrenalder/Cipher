@@ -2,6 +2,21 @@
 
 Alle nennenswerten Änderungen an Cipher. Format grob nach [Keep a Changelog](https://keepachangelog.com/de/).
 
+## [0.1.2] — 2026-06-08
+
+### Neu
+- **Manueller Update-Button:** Einstellungen → Persönlich → „Über Cipher" zeigt jetzt die
+  Version und einen Button **„Nach Updates suchen"**. Umgeht die 1×/Tag-Drossel und meldet
+  auch „Cipher ist aktuell" bzw. einen Fehler (das automatische Check schweigt in diesen
+  Fällen). Der Updater hat dafür zwei neue Signale (`up_to_date`, `check_failed`).
+
+### Behoben
+- **Scrollen in den Einstellungen:** Wenn der Mauszeiger beim Scrollen über einem Slider
+  oder Dropdown stand, verstellte das Rad den Wert, statt zu scrollen. Jetzt scrollt das
+  Rad den Bereich (der Wert ändert sich nur noch, wenn das Element den Fokus hat).
+- Update-Dialoge erscheinen jetzt zuverlässig vor dem Einstellungs-Fenster (vorher konnte
+  ein modaler Dialog dahinter landen, wenn er aus den Einstellungen ausgelöst wurde).
+
 ## [0.1.1] — 2026-06-03
 
 ### Behoben

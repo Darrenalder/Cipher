@@ -21,6 +21,9 @@ Cipher-Setup-*.exe
 *.secret
 secrets.*
 
+# Generierter Code-Dump (Referenz, kein Quellcode)
+cipher-python-code.txt
+
 # OS / Editor
 Thumbs.db
 .DS_Store

@@ -22,6 +22,7 @@ from PyQt6.QtCore import (
     QRect,
     QPoint,
     QEvent,
+    QObject,
     QPropertyAnimation,
     QEasingCurve,
 )
@@ -268,6 +269,26 @@ class _ResizeCover(QWidget):
         p.end()
 
 
+class _WheelGuard(QObject):
+    """Mausrad über einem Slider/Combo IN einem Scrollbereich soll den Bereich SCROLLEN,
+    nicht den Wert verstellen. Qt-Default: QSlider/QComboBox verschlucken das Wheel-Event
+    und ändern ihren Wert — beim Scrollen „rutscht" dann der Slider unter dem Cursor
+    (Damien-Report). Hat das Widget den Fokus (angeklickt), darf das Rad den Wert weiter
+    ändern; sonst wird der umgebende QScrollArea-Viewport gescrollt."""
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt-Signatur)
+        if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
+            p = obj.parent()
+            while p is not None:
+                if isinstance(p, QScrollArea):
+                    bar = p.verticalScrollBar()
+                    bar.setValue(bar.value() - event.angleDelta().y())
+                    event.accept()
+                    return True
+                p = p.parent()
+        return False
+
+
 class BrowserWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -315,6 +336,9 @@ class BrowserWindow(QMainWindow):
         # Auto-Update (GitHub Releases): entprosselt 1×/Tag, 6 s nach Start (nicht blockierend).
         self._updater = Updater(self)
         self._updater.update_available.connect(self._on_update_available)
+        self._updater.up_to_date.connect(self._on_up_to_date)
+        self._updater.check_failed.connect(self._on_update_failed)
+        self._manual_update_check = False  # True während eines Button-Checks → Rückmeldung zeigen
         QTimer.singleShot(6000, self._maybe_check_update)
         self._wp_avg_cache: dict[str, QColor] = {}  # Wallpaper-Durchschnittsfarbe
         self._wp_pixmap_cache: dict[str, QPixmap] = {}  # Wallpaper als Fenster-Bg
@@ -583,9 +607,50 @@ class BrowserWindow(QMainWindow):
         self.cfg.setValue("last_update_check", time.time())
         self._updater.check()
 
+    def _check_update_now(self) -> None:
+        """Manueller Update-Check (Einstellungen → Persönlich) — ohne die 1×/Tag-Drossel,
+        mit Rückmeldung auch bei „aktuell"/Fehler (das Auto-Check schweigt in diesen Fällen)."""
+        import time
+        self._manual_update_check = True
+        self.cfg.setValue("last_update_check", time.time())  # zählt auch als regulärer Check
+        if hasattr(self, "btn_update"):
+            self.btn_update.setEnabled(False)
+            self.btn_update.setText("Suche …")
+        self._updater.check()
+
+    def _reset_update_button(self) -> None:
+        if hasattr(self, "btn_update"):
+            self.btn_update.setEnabled(True)
+            self.btn_update.setText("Nach Updates suchen")
+
+    def _dialog_parent(self):
+        """Eltern-Fenster für Update-Dialoge: das Einstellungs-Fenster, wenn es offen ist
+        (sonst erscheint ein modaler Dialog auf Windows HINTER den Einstellungen, weil er
+        der Z-Reihenfolge seines Parents folgt), sonst das Hauptfenster."""
+        sw = self._settings_win
+        return sw if (sw is not None and sw.isVisible()) else self
+
+    def _on_up_to_date(self, latest: str) -> None:
+        self._reset_update_button()
+        if self._manual_update_check:
+            self._manual_update_check = False
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self._dialog_parent(), "Update",
+                                    f"Cipher ist aktuell (Version {__version__}).")
+
+    def _on_update_failed(self, msg: str) -> None:
+        self._reset_update_button()
+        if self._manual_update_check:
+            self._manual_update_check = False
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self._dialog_parent(), "Update",
+                                "Update-Prüfung fehlgeschlagen:\n" + msg)
+
     def _on_update_available(self, info: dict) -> None:
+        self._reset_update_button()
+        self._manual_update_check = False
         from PyQt6.QtWidgets import QMessageBox
-        box = QMessageBox(self)
+        box = QMessageBox(self._dialog_parent())
         box.setWindowTitle("Update verfügbar")
         box.setText(f"Cipher {info.get('version', '?')} ist verfügbar "
                     f"(installiert: {__version__}).")
@@ -997,6 +1062,15 @@ class BrowserWindow(QMainWindow):
         self.cmb_tz.setCurrentIndex(i if i >= 0 else 0)
         self.cmb_tz.currentIndexChanged.connect(self._on_personal_changed)
         v.addWidget(self.cmb_tz)
+
+        lbl_about = QLabel("Über Cipher")
+        lbl_about.setProperty("role", "section")
+        v.addWidget(lbl_about)
+        v.addWidget(QLabel(f"Version: {__version__}"))
+        self.btn_update = QPushButton("Nach Updates suchen")
+        self.btn_update.clicked.connect(self._check_update_now)
+        v.addWidget(self.btn_update, alignment=Qt.AlignmentFlag.AlignLeft)
+
         v.addStretch(1)
         return w
 
@@ -1544,6 +1618,13 @@ class BrowserWindow(QMainWindow):
 
         h.addWidget(cats)
         h.addWidget(stack, 1)
+
+        # Mausrad über Slidern/Combos scrollt den Bereich, statt den Wert zu verstellen.
+        # ERST nach dem Einhängen in win — sonst findet findChildren die Widgets noch nicht.
+        self._wheel_guard = _WheelGuard(win)
+        for cls in (QSlider, QComboBox):
+            for wdg in win.findChildren(cls):
+                wdg.installEventFilter(self._wheel_guard)
         return win
 
     def _open_settings(self, category: str = "appearance") -> None:

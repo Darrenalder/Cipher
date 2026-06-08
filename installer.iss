@@ -4,7 +4,7 @@
 ;        in der Inno-IDE öffnen und "Compile" (oder: ISCC.exe installer.iss).
 
 #define MyAppName "Cipher"
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.1.2"
 #define MyAppPublisher "Damien"
 #define MyAppExeName "Cipher.exe"
 

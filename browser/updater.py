@@ -49,6 +49,8 @@ class Updater(QObject):
     """Fragt GitHub Releases ab; meldet ein verfügbares Update per Signal."""
 
     update_available = pyqtSignal(dict)  # {version, url, page_url, notes}
+    up_to_date = pyqtSignal(str)         # nichts Neueres da → aktuelle/neueste Version
+    check_failed = pyqtSignal(str)       # Netz-/Antwortfehler (Fehlertext)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -67,10 +69,12 @@ class Updater(QObject):
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 log.info("Update-Check fehlgeschlagen: %s", reply.errorString())
+                self.check_failed.emit(reply.errorString())
                 return
             data = json.loads(bytes(reply.readAll()).decode("utf-8"))
             tag = data.get("tag_name", "")
             if not is_newer(tag):
+                self.up_to_date.emit((tag or __version__).lstrip("vV"))
                 return
             url = ""
             for asset in data.get("assets", []):
@@ -87,6 +91,7 @@ class Updater(QObject):
             })
         except (ValueError, KeyError) as e:
             log.info("Update-Check: ungültige Antwort (%s)", e)
+            self.check_failed.emit(str(e))
         finally:
             reply.deleteLater()
 
