@@ -1,19 +1,34 @@
 """Wortlisten je Sprache fuer das Data Poisoning (siehe ``browser/decoy.py``).
 
-Die grossen Listen liegen pro Sprache in ``<lang>.py`` (de/en/fr/es/it), damit ``decoy.py``
-schlank bleibt (Logik getrennt von Daten). Jede Sprachdatei definiert drei Listen:
+Die Listen liegen pro Sprache in mehreren Dateien (damit kein File riesig wird und mehrere
+Beitraege parallel entstehen koennen). Pro Sprache ``<lang>`` gibt es:
 
-* ``CITIES``     – Stadtnamen, in der jeweiligen Sprache geschrieben (lowercase)
-* ``TEMPLATES``  – Such-Vorlagen mit genau einem ``{}`` (Platz fuer eine Stadt), lowercase
-* ``STANDALONE`` – themenbezogene Anfragen ohne Ort, lowercase
+* ``<lang>.py``           – Basis-Set mit ``CITIES`` / ``TEMPLATES`` / ``STANDALONE``
+* ``<lang>_cities.py``    – zusaetzliche ``CITIES``
+* ``<lang>_templates.py`` – zusaetzliche ``TEMPLATES`` (jede mit genau einem ``{}``)
+* ``<lang>_std_a.py``     – zusaetzliche ``STANDALONE`` (Tech/Wissen)
+* ``<lang>_std_b.py``     – zusaetzliche ``STANDALONE`` (Alltag/Leben)
 
-Hier werden sie zu Dicts ``{lang: [...]}`` zusammengefuehrt und dabei dedupliziert
-(reihenfolge-erhaltend), sodass Wiederholungen die Zufallsauswahl nicht verzerren.
+Konventionen je Liste:
+* ``CITIES``     – Stadtnamen, in der jeweiligen Sprache geschrieben
+* ``TEMPLATES``  – Such-Vorlagen mit genau einem ``{}`` (Platz fuer eine Stadt)
+* ``STANDALONE`` – themenbezogene Anfragen ohne Ort
+
+Hier werden alle Module einer Sprache zusammengefuehrt, normalisiert (strip + lowercase) und
+dedupliziert (reihenfolge-erhaltend), sodass Wiederholungen die Zufallsauswahl nicht verzerren.
+Eine Datei muss nicht alle drei Listen definieren – fehlende werden als leer behandelt.
 """
 
-from . import de, en, fr, es, it
+import importlib
 
-_LANGS = {"de": de, "en": en, "fr": fr, "es": es, "it": it}
+# Reihenfolge je Sprache: Basis zuerst, dann die Erweiterungen.
+_LANG_MODULES = {
+    "de": ["de", "de_cities", "de_templates", "de_std_a", "de_std_b"],
+    "en": ["en", "en_cities", "en_templates", "en_std_a", "en_std_b"],
+    "fr": ["fr", "fr_cities", "fr_templates", "fr_std_a", "fr_std_b"],
+    "es": ["es", "es_cities", "es_templates", "es_std_a", "es_std_b"],
+    "it": ["it", "it_cities", "it_templates", "it_std_a", "it_std_b"],
+}
 
 
 def _norm(xs):
@@ -21,6 +36,14 @@ def _norm(xs):
     return list(dict.fromkeys(s.strip().lower() for s in xs))
 
 
-CITIES = {lang: _norm(mod.CITIES) for lang, mod in _LANGS.items()}
-TEMPLATES = {lang: _norm(mod.TEMPLATES) for lang, mod in _LANGS.items()}
-STANDALONE = {lang: _norm(mod.STANDALONE) for lang, mod in _LANGS.items()}
+def _collect(lang, attr):
+    out = []
+    for name in _LANG_MODULES[lang]:
+        mod = importlib.import_module(f"{__name__}.{name}")
+        out.extend(getattr(mod, attr, ()))
+    return _norm(out)
+
+
+CITIES = {lang: _collect(lang, "CITIES") for lang in _LANG_MODULES}
+TEMPLATES = {lang: _collect(lang, "TEMPLATES") for lang in _LANG_MODULES}
+STANDALONE = {lang: _collect(lang, "STANDALONE") for lang in _LANG_MODULES}

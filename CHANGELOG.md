@@ -12,14 +12,21 @@ Alle nennenswerten Änderungen an Cipher. Format grob nach [Keep a Changelog](ht
   (Cookies/Profil) — für die Suchmaschine ununterscheidbar von einer echten Suche, damit sie das
   tatsächliche Profil verwässern statt nur anonymes Rauschen zu erzeugen. Standardmässig aus, im
   Game-Mode pausiert. Ressourcenschonend: die versteckte Seite wird zwischen den Suchen samt
-  Renderer-Prozess abgebaut (kein Dauer-RAM/-CPU im Leerlauf). Die Anfragen ziehen aus einem
-  grossen mehrsprachigen Wortpool (DE/EN/FR/ES/IT, ~6500 Einträge: Städte × Such-Vorlagen +
-  Standalone-Themen je Sprache) → kombinatorisch hunderttausende mögliche Anfragen, für einen
-  Profiler praktisch nicht als feste Liste erkennbar. Optionales Test-Ziel (z. B.
-  webhook.site) zum Mitverfolgen; jede Anfrage steht im Log (`logs/own-browser.log`)/Konsole.
+  Renderer-Prozess abgebaut (kein Dauer-RAM/-CPU im Leerlauf); der Wortpool wird erst beim
+  ersten Feuern geladen (kein Startup-Overhead, solange das Feature aus ist). Die Anfragen
+  ziehen aus einem sehr grossen mehrsprachigen Wortpool (DE/EN/FR/ES/IT, **~29 000 Einträge**:
+  ~9 500 Städte × ~7 000 Such-Vorlagen + ~12 400 Standalone-Themen) → **~13,7 Mio. mögliche
+  Anfragen**, für einen Profiler praktisch nicht als feste Liste erkennbar. Optionales Test-Ziel
+  (z. B. webhook.site) zum Mitverfolgen; jede Anfrage steht im Log (`logs/own-browser.log`)/Konsole.
   Ehrliche Einordnung: Poisoning wirkt nur begrenzt (Profiler filtern Roboter-Rauschen oft
   heraus) — der stärkere Hebel bleibt Prävention (Drittanbieter-Cookies blockiert + Startpage,
   beides aktiv).
+
+### Geändert
+- **Update-Installation jetzt lautlos:** Beim Auto-Update läuft das Setup im Hintergrund
+  (`/VERYSILENT`) — kein Installations-Fenster, keine Lizenz-Bestätigung, kein Klicken.
+  Cipher schliesst sich kurz und startet danach automatisch aktualisiert neu. (Greift für
+  Updates *ab* dieser Version.)
 
 ## [0.1.2] — 2026-06-08
 
