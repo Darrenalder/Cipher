@@ -2,7 +2,31 @@
 
 Alle nennenswerten Änderungen an Cipher. Format grob nach [Keep a Changelog](https://keepachangelog.com/de/).
 
-## [0.1.3] — unveröffentlicht
+## [0.1.4] — unveröffentlicht
+
+### Neu
+- **Animations-Tempo-Regler:** Einstellungen → Darstellung. Skaliert das Tempo *aller*
+  UI-Animationen (1–16×, Standard 4×; höher = schneller, niedriger = langsamer).
+
+### Geändert
+- **Einstellungen als eingebettetes Slide-Panel:** Die Einstellungen öffnen sich nicht mehr
+  als separates Fenster, sondern fahren als schmale, schwebende Glas-Karte aus der Rail unter
+  der Adressleiste aus — im selben Look wie die Leisten (frostiges Wallpaper bei Glas-Leisten,
+  sonst einfarbig), leicht abgedunkelt, mit etwas Abstand zum Rand. Öffnen/Schliessen als
+  ruckelfreies Aufdecken: das fertige Panel wird einmal gerendert und aus der Rail
+  „aufgewischt", kein Umbrechen oder Klippen des Inhalts während der Animation. Der Inhalt
+  passt jetzt ohne horizontales Scrollen in die Breite (schmalere Kategorie-Spalte, gekürzte
+  Labels mit Tooltips); vertikal scrollbar. Klick daneben oder Esc schliesst. Kein fremder
+  Fensterrahmen mehr.
+- **Update-Installation jetzt lautlos:** Beim Auto-Update läuft das Setup im Hintergrund
+  (`/VERYSILENT`) — kein Installations-Fenster, keine Lizenz-Bestätigung, kein Klicken.
+  Cipher schliesst sich kurz und startet danach automatisch aktualisiert neu. (Greift für
+  Updates *ab* dieser Version.)
+- **Data Poisoning — grösserer Wortpool:** Pool auf **~29 000 Einträge** erweitert
+  (~9 500 Städte × ~7 000 Such-Vorlagen + ~12 400 Standalone-Themen, DE/EN/FR/ES/IT) →
+  **~13,7 Mio. mögliche Anfragen** statt vorher einige Hunderttausend.
+
+## [0.1.3] — 2026-06-08
 
 ### Neu
 - **Data Poisoning (Datenspur verwässern):** Einstellungen → Datenschutz. Schickt in
@@ -12,21 +36,14 @@ Alle nennenswerten Änderungen an Cipher. Format grob nach [Keep a Changelog](ht
   (Cookies/Profil) — für die Suchmaschine ununterscheidbar von einer echten Suche, damit sie das
   tatsächliche Profil verwässern statt nur anonymes Rauschen zu erzeugen. Standardmässig aus, im
   Game-Mode pausiert. Ressourcenschonend: die versteckte Seite wird zwischen den Suchen samt
-  Renderer-Prozess abgebaut (kein Dauer-RAM/-CPU im Leerlauf); der Wortpool wird erst beim
-  ersten Feuern geladen (kein Startup-Overhead, solange das Feature aus ist). Die Anfragen
-  ziehen aus einem sehr grossen mehrsprachigen Wortpool (DE/EN/FR/ES/IT, **~29 000 Einträge**:
-  ~9 500 Städte × ~7 000 Such-Vorlagen + ~12 400 Standalone-Themen) → **~13,7 Mio. mögliche
-  Anfragen**, für einen Profiler praktisch nicht als feste Liste erkennbar. Optionales Test-Ziel
-  (z. B. webhook.site) zum Mitverfolgen; jede Anfrage steht im Log (`logs/own-browser.log`)/Konsole.
+  Renderer-Prozess abgebaut (kein Dauer-RAM/-CPU im Leerlauf). Die Anfragen ziehen aus einem
+  grossen mehrsprachigen Wortpool (DE/EN/FR/ES/IT, ~6500 Einträge: Städte × Such-Vorlagen +
+  Standalone-Themen je Sprache) → kombinatorisch hunderttausende mögliche Anfragen, für einen
+  Profiler praktisch nicht als feste Liste erkennbar. Optionales Test-Ziel (z. B.
+  webhook.site) zum Mitverfolgen; jede Anfrage steht im Log (`logs/own-browser.log`)/Konsole.
   Ehrliche Einordnung: Poisoning wirkt nur begrenzt (Profiler filtern Roboter-Rauschen oft
   heraus) — der stärkere Hebel bleibt Prävention (Drittanbieter-Cookies blockiert + Startpage,
   beides aktiv).
-
-### Geändert
-- **Update-Installation jetzt lautlos:** Beim Auto-Update läuft das Setup im Hintergrund
-  (`/VERYSILENT`) — kein Installations-Fenster, keine Lizenz-Bestätigung, kein Klicken.
-  Cipher schliesst sich kurz und startet danach automatisch aktualisiert neu. (Greift für
-  Updates *ab* dieser Version.)
 
 ## [0.1.2] — 2026-06-08
 

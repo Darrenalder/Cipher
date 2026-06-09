@@ -24,6 +24,7 @@ from PyQt6.QtCore import (
     QEvent,
     QObject,
     QPropertyAnimation,
+    QVariantAnimation,
     QEasingCurve,
 )
 from PyQt6.QtGui import (
@@ -290,6 +291,66 @@ class _WheelGuard(QObject):
         return False
 
 
+class _Scrim(QWidget):
+    """Halbtransparenter Hintergrund hinter dem Einstellungs-Panel; Klick daneben schliesst."""
+
+    def __init__(self, parent, on_click):
+        super().__init__(parent)
+        self._on_click = on_click
+
+    def mousePressEvent(self, e):  # noqa: N802 (Qt-Signatur)
+        self._on_click()
+
+
+class _GlassPanel(QWidget):
+    """Einstellungs-Panel, das sich optisch an die Chrome-Leisten anlehnt: bei Glas-Leisten
+    malt es denselben (frostigen bzw. scharfen) Wallpaper-Ausschnitt wie der Host darunter
+    + Abdunklung — sieht also aus wie der Rand (inkl. durchsichtig/verschwommen, wenn die
+    Leisten es sind). Ohne Glas: einfarbige Leisten-Farbe. Die Kind-Widgets sind transparent
+    gesetzt, damit dieser gemalte Hintergrund durchscheint."""
+
+    def __init__(self, host):
+        super().__init__(host)
+        self._host = host
+        self._solid = QColor("#1f2630")
+        self._border = QColor("#2a3142")
+        self._glass = False
+
+    def set_look(self, solid, border, glass: bool) -> None:
+        self._solid = QColor(solid)
+        self._border = QColor(border)
+        self._glass = bool(glass)
+        self.update()
+
+    def paintEvent(self, e):  # noqa: N802 (Qt-Signatur)
+        h = self._host
+        p = QPainter(self)
+        fr = getattr(h, "_wp_frosted", None)
+        sc = getattr(h, "_wp_scaled", None)
+        off = self.pos()  # Position im Host → Wallpaper-Ausschnitt deckungsgleich zum Rand
+        drew = False
+        if self._glass and fr is not None and not fr.isNull():
+            # _wp_frosted ist host-gross (0,0 = Host-Ecke) → direkter Ausschnitt
+            p.drawPixmap(self.rect(), fr, QRect(off.x(), off.y(), self.width(), self.height()))
+            drew = True
+        elif self._glass and sc is not None and not sc.isNull():
+            x = (sc.width() - h.width()) // 2 + off.x()
+            y = (sc.height() - h.height()) // 2 + off.y()
+            p.drawPixmap(self.rect(), sc, QRect(x, y, self.width(), self.height()))
+            drew = True
+        if drew:
+            dim = getattr(h, "_dim", 0.0)
+            if dim > 0:
+                p.fillRect(self.rect(), QColor(0, 0, 0, round(dim * 255)))
+            tint = QColor(self._solid)
+            tint.setAlpha(110)  # dezente Tönung in Leisten-Farbe → etwas dunkler, wie der Rand
+            p.fillRect(self.rect(), tint)
+        else:
+            p.fillRect(self.rect(), self._solid)
+        p.fillRect(0, 0, 1, self.height(), self._border)  # linke Kante wie der Rand
+        p.end()
+
+
 class BrowserWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -300,6 +361,7 @@ class BrowserWindow(QMainWindow):
 
         self.cfg = QSettings("OwnBrowser", "OwnBrowser")
         self._radius = int(self.cfg.value("radius", 12))
+        self._anim_speed = int(self.cfg.value("anim_speed", 4))  # Animations-Tempo (1–16, 4 = Standard)
         self._ram_limit = int(self.cfg.value("ram_limit", 0))  # MB, 0 = aus
         self._glossy = self.cfg.value("glossy", True, type=bool)  # Glanz-Oberfläche
         # Glas-Leisten: Wallpaper scheint hinter Tabs/Adressleiste/Status/Rail durch.
@@ -395,7 +457,6 @@ class BrowserWindow(QMainWindow):
         self.rail = self._build_rail()
         self.toolbar = self._build_toolbar()
         self._build_statusbar()
-        self._settings_win = self._build_settings_window()
 
         # Zusammenbau (rahmenlos): Rand = Resize-Zone.
         central = _FramelessHost(self)
@@ -436,6 +497,7 @@ class BrowserWindow(QMainWindow):
         # Host-Cursor zurück, sobald die Maus eintritt (Enter) — das reicht.
         self._host = central
         self._resize_cover = _ResizeCover(central)  # Live-Resize-Overlay (s. resizeEvent)
+        self._settings_win = self._build_settings_panel()  # eingebettetes Slide-Panel (Kind des Host)
         for wdg in (topbar, self.toolbar, body, self.rail, self._statusbar, self.tabbar):
             wdg.installEventFilter(self)
         self.urlbar.setCursor(Qt.CursorShape.IBeamCursor)
@@ -662,7 +724,8 @@ class BrowserWindow(QMainWindow):
         box.setWindowTitle("Update verfügbar")
         box.setText(f"Cipher {info.get('version', '?')} ist verfügbar "
                     f"(installiert: {__version__}).")
-        box.setInformativeText("Jetzt herunterladen und aktualisieren?")
+        box.setInformativeText("Jetzt aktualisieren? Cipher schliesst sich kurz und startet "
+                               "danach automatisch aktualisiert neu — ohne Installations-Fenster.")
         box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         box.setDefaultButton(QMessageBox.StandardButton.Yes)
         if box.exec() == QMessageBox.StandardButton.Yes:
@@ -674,6 +737,7 @@ class BrowserWindow(QMainWindow):
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
         self._on_live_resize()
+        self._reposition_settings()  # Slide-Panel rechts angedockt halten
 
     def _on_live_resize(self) -> None:
         """Während Live-Resize friert QtWebEngine ihren Inhalt ein (Chromium rendert erst
@@ -1001,6 +1065,7 @@ class BrowserWindow(QMainWindow):
         sa.setWidgetResizable(True)  # Inhalt füllt die Breite, scrollt bei Höhen-Überlauf
         sa.setFrameShape(QFrame.Shape.NoFrame)
         sa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sa.viewport().setStyleSheet("background: transparent;")  # Glas-Panel-Hintergrund durchlassen
         sa.setWidget(page)
         return sa
 
@@ -1144,13 +1209,22 @@ class BrowserWindow(QMainWindow):
         self.sld_radius.setValue(self._radius)
         self.sld_radius.valueChanged.connect(self._on_radius_changed)
         v.addWidget(self.sld_radius)
+        self.lbl_animspeed = QLabel(f"Animations-Tempo: {self._anim_speed}×")
+        v.addWidget(self.lbl_animspeed)
+        self.sld_animspeed = QSlider(Qt.Orientation.Horizontal)
+        self.sld_animspeed.setRange(1, 16)
+        self.sld_animspeed.setValue(self._anim_speed)
+        self.sld_animspeed.setToolTip("Tempo aller UI-Animationen (4 = Standard, höher = schneller)")
+        self.sld_animspeed.valueChanged.connect(self._on_animspeed_changed)
+        v.addWidget(self.sld_animspeed)
 
         lbl_fx = QLabel("Effekte")
         lbl_fx.setProperty("role", "section")
         v.addWidget(lbl_fx)
 
         # Startseiten-Glas: Checkbox + eigene Slider-Gruppe (fährt animiert ein/aus).
-        self.chk_glossy = QCheckBox("Startseiten-Glas (Suchleiste + Kacheln)")
+        self.chk_glossy = QCheckBox("Startseiten-Glas")
+        self.chk_glossy.setToolTip("Glas-Look für Suchleiste + Speed-Dial-Kacheln")
         self.chk_glossy.setChecked(self._glossy)
         self.chk_glossy.toggled.connect(self._on_glossy_toggled)
         v.addWidget(self.chk_glossy)
@@ -1162,8 +1236,9 @@ class BrowserWindow(QMainWindow):
         v.addWidget(self._glass_group)
 
         # Glas-Leisten: eigene Checkbox + eigene Slider-Gruppe.
-        self.chk_glass_chrome = QCheckBox(
-            "Glas-Leisten (Wallpaper hinter Tabs/Adressleiste/Leisten)")
+        self.chk_glass_chrome = QCheckBox("Glas-Leisten")
+        self.chk_glass_chrome.setToolTip(
+            "Wallpaper hinter Tabs/Adressleiste/Leisten durchscheinen lassen")
         self.chk_glass_chrome.setChecked(self._glass_chrome)
         self.chk_glass_chrome.toggled.connect(self._on_glass_chrome_toggled)
         v.addWidget(self.chk_glass_chrome)
@@ -1214,10 +1289,15 @@ class BrowserWindow(QMainWindow):
         layout.addWidget(s)
         return lab, s
 
+    def _anim_ms(self, base_ms: int) -> int:
+        """Basis-Dauer mit dem Animations-Tempo-Regler skalieren: 4 = Standard (aktuelles Tempo),
+        höher = schneller, niedriger = langsamer. Greift auf ALLE UI-Animationen."""
+        return max(1, round(base_ms * 4 / max(1, self._anim_speed)))
+
     def _slide_group(self, group, show: bool) -> None:
         """Slider-Gruppe per maximumHeight-Animation ein-/ausfahren (Rutsch-Effekt)."""
         anim = QPropertyAnimation(group, b"maximumHeight", self)
-        anim.setDuration(240)
+        anim.setDuration(self._anim_ms(240))
         anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
         if show:
             group.setMaximumHeight(0)
@@ -1654,20 +1734,31 @@ class BrowserWindow(QMainWindow):
         get_profile().clearAllVisitedLinks()
         self._statusbar.showMessage("Verlauf gelöscht.", 3000)
 
-    def _build_settings_window(self) -> QWidget:
-        # Eigenes Fenster (mit normalem Rahmen), an die Hauptfenster-Lebensdauer gekoppelt.
-        win = QWidget(self, Qt.WindowType.Window)
-        win.setWindowTitle("Own Browser – Einstellungen")
-        win.setMinimumSize(720, 480)
-        win.resize(840, 560)
-        h = QHBoxLayout(win)
+    def _build_settings_panel(self) -> QWidget:
+        """Einstellungen als eingebettetes Slide-Panel (Kind des Host-Widgets) statt separates
+        Fenster — fährt rechts aus, im Theme-Design, über der Web-View (wie _ResizeCover).
+        Ein Scrim dahinter dunkelt ab und schliesst bei Klick daneben."""
+        host = self._host
+        self._settings_scrim = _Scrim(host, self._close_settings)
+        self._settings_scrim.setStyleSheet("background: rgba(0,0,0,0.45);")
+        self._settings_scrim.hide()
+
+        panel = _GlassPanel(host)
+        panel.setObjectName("SettingsPanel")
+        # Kind-Container transparent → der vom Panel gemalte Hintergrund (einfarbig oder
+        # Wallpaper-Frost wie die Leisten) scheint durch; Bedienelemente behalten ihren Stil.
+        panel.setStyleSheet(
+            "#SettingsPanel QStackedWidget, #SettingsPanel QScrollArea,"
+            " #SettingsPanel QListWidget { background: transparent; }")
+        h = QHBoxLayout(panel)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
 
         cats = self._settings_cats = QListWidget()
         cats.setObjectName("SettingsCats")
-        cats.setFixedWidth(200)
+        cats.setFixedWidth(150)  # schmaler → mehr Platz für den Inhalt (kein horizontaler Cut)
         cats.setIconSize(QSize(18, 18))
+        cats.viewport().setStyleSheet("background: transparent;")
 
         stack = self._settings_stack = QStackedWidget()
         col = self._themes[self._current_theme]["text"]
@@ -1683,38 +1774,140 @@ class BrowserWindow(QMainWindow):
         for title, icon, page in pages:
             QListWidgetItem(icon, title, cats)
             # „Themen" bringt schon einen eigenen Scrollbereich (Karten-Grid) mit →
-            # nicht doppelt wrappen; alle anderen Sektionen scrollen bei kleinem Fenster.
+            # nicht doppelt wrappen; alle anderen Sektionen scrollen bei kleinem Panel.
             stack.addWidget(page if title == "Themen" else self._scroll_page(page))
         cats.currentRowChanged.connect(stack.setCurrentIndex)
         cats.setCurrentRow(0)
-
         h.addWidget(cats)
         h.addWidget(stack, 1)
 
         # Mausrad über Slidern/Combos scrollt den Bereich, statt den Wert zu verstellen.
-        # ERST nach dem Einhängen in win — sonst findet findChildren die Widgets noch nicht.
-        self._wheel_guard = _WheelGuard(win)
+        self._wheel_guard = _WheelGuard(panel)
         for cls in (QSlider, QComboBox):
-            for wdg in win.findChildren(cls):
+            for wdg in panel.findChildren(cls):
                 wdg.installEventFilter(self._wheel_guard)
-        return win
+
+        panel.hide()
+        self._settings_panel = panel
+        self._settings_open = False
+        self._settings_reveal = QLabel(host)  # gerendertes Panel-Bild für die ruckelfreie Aufdeck-Animation
+        self._settings_reveal.hide()
+        self._style_settings_panel()
+        QShortcut(QKeySequence("Escape"), panel, activated=self._close_settings)
+        return panel
+
+    def _style_settings_panel(self) -> None:
+        """Panel-Look an die Chrome-Leisten anpassen: bei Glas-Leisten malt es denselben
+        (frostigen) Wallpaper-Ausschnitt wie der Rand, sonst die einfarbige Leisten-Farbe."""
+        if not hasattr(self, "_settings_panel"):
+            return
+        t = self._themes[self._current_theme]
+        solid = t.get("bg_alt") or t.get("bg_elevated") or "#1f2630"
+        border = t.get("border", "#2a3142")
+        self._settings_panel.set_look(solid, border, self._glass_chrome)
+
+    def _settings_rects(self):
+        """Geometrie für Slide-Panel + Scrim: das Panel fährt aus der rechten Rail aus, sitzt
+        UNTER der Adressleiste (nur Body-Höhe) und lässt die Rail frei → Tabs/Adressleiste/Rail
+        bleiben klickbar. Liefert (panel_rect_offen, scrim_rect, rail_left_x)."""
+        host = self._host
+        rp = self.rail.mapTo(host, QPoint(0, 0))
+        rail_left, top, hh = rp.x(), rp.y(), self.rail.height()
+        pw = min(520, max(200, rail_left))
+        m = 12  # Abstand zu Adressleiste/Statusleiste → schwebende Karte statt bündig/„abgeschnitten"
+        panel = QRect(rail_left - pw, top + m, pw, max(120, hh - 2 * m))
+        scrim = QRect(0, top, rail_left, hh)
+        return panel, scrim, rail_left
 
     def _open_settings(self, category: str = "appearance") -> None:
         if self._settings_win is None:
-            self._settings_win = self._build_settings_window()
+            self._settings_win = self._build_settings_panel()
         row = {
-            "personal": 0,
-            "appearance": 1,
-            "webpages": 2,
-            "search": 3,
-            "privacy": 4,
-            "performance": 5,
-            "themes": 6,
+            "personal": 0, "appearance": 1, "webpages": 2, "search": 3,
+            "privacy": 4, "performance": 5, "themes": 6,
         }.get(category, 1)
         self._settings_cats.setCurrentRow(row)
-        self._settings_win.show()
-        self._settings_win.raise_()
-        self._settings_win.activateWindow()
+        if getattr(self, "_settings_open", False):
+            return  # schon offen → nur Kategorie wechseln, keine neue Animation
+        panel_rect, scrim_rect, rail_left = self._settings_rects()
+        self._settings_scrim.setGeometry(scrim_rect)
+        self._settings_scrim.show()
+        self._settings_scrim.raise_()
+        # Panel final layouten + EINMAL in ein Bild rendern; die Animation deckt nur dieses Bild
+        # von der Rail-Seite nach links auf (Maske auf einem schlichten Label = ruckelfrei, KEIN
+        # Reflow/Klippen der echten Widgets während der Bewegung).
+        self._settings_panel.setGeometry(panel_rect)
+        self._settings_panel.show()
+        self._settings_panel.raise_()
+        pm = self._settings_panel.grab()
+        self._settings_panel.hide()
+        rev = self._settings_reveal
+        rev.setGeometry(panel_rect)
+        rev.setPixmap(pm)
+        rev.show()
+        rev.raise_()
+        pw, hh = panel_rect.width(), panel_rect.height()
+        anim = QVariantAnimation(self)
+        anim.setDuration(self._anim_ms(200))
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.valueChanged.connect(
+            lambda t: rev.setMask(QRegion(pw - int(pw * t), 0, int(pw * t), hh)))
+        anim.finished.connect(self._reveal_to_panel)
+        anim.start()
+        self._settings_anim = anim
+        self._settings_open = True
+
+    def _reveal_to_panel(self) -> None:
+        """Nach der Öffnen-Animation vom gerenderten Bild auf das echte (interaktive) Panel."""
+        if not self._settings_open:
+            return
+        self._settings_reveal.clearMask()
+        self._settings_reveal.hide()
+        self._settings_panel.show()
+        self._settings_panel.raise_()
+        self._settings_panel.setFocus()
+
+    def _close_settings(self) -> None:
+        if not getattr(self, "_settings_open", False):
+            return
+        self._settings_open = False
+        geo = self._settings_panel.geometry()
+        pm = self._settings_panel.grab()
+        self._settings_panel.hide()
+        rev = self._settings_reveal
+        rev.setGeometry(geo)
+        rev.setPixmap(pm)
+        rev.show()
+        rev.raise_()
+        pw, hh = geo.width(), geo.height()
+        anim = QVariantAnimation(self)
+        anim.setDuration(self._anim_ms(150))
+        anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.valueChanged.connect(
+            lambda t: rev.setMask(QRegion(pw - int(pw * t), 0, max(0, int(pw * t)), hh)))
+        anim.finished.connect(self._after_settings_closed)
+        anim.start()
+        self._settings_anim = anim
+
+    def _after_settings_closed(self) -> None:
+        if not self._settings_open:  # nicht inzwischen wieder geöffnet
+            self._settings_reveal.clearMask()
+            self._settings_reveal.hide()
+            self._settings_panel.hide()
+            self._settings_scrim.hide()
+
+    def _reposition_settings(self) -> None:
+        if not getattr(self, "_settings_open", False):
+            return
+        panel_rect, scrim_rect, _ = self._settings_rects()
+        self._settings_scrim.setGeometry(scrim_rect)
+        self._settings_panel.setGeometry(panel_rect)
+        self._settings_scrim.raise_()
+        self._settings_panel.raise_()
 
     def _on_freeze_changed(self, val: int) -> None:
         self.lbl_freeze.setText(f"Einfrieren nach: {val} s")
@@ -1738,6 +1931,11 @@ class BrowserWindow(QMainWindow):
         self._ram_limit = val
         self.lbl_ramlimit.setText(self._ram_limit_text())
         self.cfg.setValue("ram_limit", val)
+
+    def _on_animspeed_changed(self, val: int) -> None:
+        self._anim_speed = val
+        self.cfg.setValue("anim_speed", val)
+        self.lbl_animspeed.setText(f"Animations-Tempo: {val}×")
 
     def _on_radius_changed(self, val: int) -> None:
         self._radius = val
@@ -1836,6 +2034,7 @@ class BrowserWindow(QMainWindow):
             tab.setUrl(QUrl(f"app://newtab/?r={self._newtab_rev}"))
         # Nur Highlight umsetzen (kein Grid-Rebuild → kein Scroll-Sprung/Flackern).
         self._update_active_theme_card()
+        self._style_settings_panel()  # Panel-Hintergrund mit dem Theme aktualisieren
 
     def _page_bg_color(self, theme: dict) -> QColor:
         """Ladefarbe der Startseite. Bei Bild-Wallpaper die Durchschnittsfarbe des

@@ -24,6 +24,12 @@ secrets.*
 # Generierter Code-Dump (Referenz, kein Quellcode)
 cipher-python-code.txt
 
+# Interne Feature-Liste (nur lokal, nicht auf GitHub)
+cipher-features.md
+
+# Lokales Release-Helfer-Script (setzt alle Versionsnummern)
+bump-version.bat
+
 # OS / Editor
 Thumbs.db
 .DS_Store
