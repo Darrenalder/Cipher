@@ -32,23 +32,32 @@ from PyQt6.QtCore import QObject, QTimer, QUrl
 from PyQt6.QtWebEngineCore import QWebEnginePage
 
 from .applog import log
-from .decoy_words import CITIES, TEMPLATES, STANDALONE
 
 # Queries werden KOMBINATORISCH erzeugt: Städte × Sprach-Vorlagen + Standalone-Themen, je
-# Sprache eigene Listen (browser/decoy_words/, ~6500 Einträge) -> riesiger Variantenraum
-# (pro Sprache hunderttausende mögliche Anfragen), für einen Profiler praktisch nicht als
-# „bekannte Liste" erkennbar. Echte Umlaute/Akzente wirken natürlicher; quote() kodiert
-# sie sauber (ü -> %C3%BC).
-_LANGS = list(TEMPLATES.keys())
+# Sprache eigene Listen (browser/decoy_words/, ~29000 Einträge) -> riesiger Variantenraum
+# (~13 Mio. mögliche Anfragen), für einen Profiler praktisch nicht als „bekannte Liste"
+# erkennbar. Echte Umlaute/Akzente wirken natürlicher; quote() kodiert sie sauber.
+# LAZY geladen: erst beim ersten Feuern (Data Poisoning ist default AUS -> kein Startup-
+# Overhead/RAM für die ~29000 Einträge, wenn das Feature niemand nutzt).
+_WORDS = None
+
+
+def _words():
+    global _WORDS
+    if _WORDS is None:
+        from .decoy_words import CITIES, TEMPLATES, STANDALONE
+        _WORDS = (CITIES, TEMPLATES, STANDALONE, list(TEMPLATES.keys()))
+    return _WORDS
 
 
 def _random_query() -> str:
     """Eine zufällige, organisch wirkende Suchanfrage: zufällige Sprache, zu ~60 %
     ortsbezogen (Stadt in der jeweiligen Sprache), sonst thematisch."""
-    lang = random.choice(_LANGS)
+    cities, templates, standalone, langs = _words()
+    lang = random.choice(langs)
     if random.random() < 0.6:
-        return random.choice(TEMPLATES[lang]).format(random.choice(CITIES[lang]))
-    return random.choice(STANDALONE[lang])
+        return random.choice(templates[lang]).format(random.choice(cities[lang]))
+    return random.choice(standalone[lang])
 
 
 class DataPoisoning(QObject):

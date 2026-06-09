@@ -4,7 +4,7 @@
 ;        in der Inno-IDE öffnen und "Compile" (oder: ISCC.exe installer.iss).
 
 #define MyAppName "Cipher"
-#define MyAppVersion "0.1.2"
+#define MyAppVersion "0.1.4"
 #define MyAppPublisher "Damien"
 #define MyAppExeName "Cipher.exe"
 
@@ -48,4 +48,7 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; Interaktive Erstinstallation: optionaler „Cipher starten"-Haken auf der Abschluss-Seite.
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+; Lautloses Auto-Update (/VERYSILENT): Cipher danach automatisch neu starten.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: WizardSilent

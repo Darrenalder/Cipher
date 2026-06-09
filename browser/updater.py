@@ -133,7 +133,12 @@ def download_and_launch(url: str, parent=None) -> None:
             QMessageBox.warning(parent, "Update", "Konnte Update nicht speichern:\n" + str(e))
             return
         try:
-            subprocess.Popen([path], close_fds=True)  # Inno macht In-Place-Upgrade
+            # Lautlos installieren: /VERYSILENT = kein Wizard, keine Lizenz, kein Klicken;
+            # /SUPPRESSMSGBOXES = keine Rückfragen; /NORESTART = kein Windows-Neustart.
+            # Das Setup schliesst Cipher (Restart-Manager), ersetzt die Dateien und startet
+            # Cipher danach automatisch neu (installer.iss [Run] mit Check: WizardSilent).
+            subprocess.Popen([path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+                             close_fds=True)
         except OSError as e:
             QMessageBox.warning(parent, "Update", "Konnte Setup nicht starten:\n" + str(e))
             return
